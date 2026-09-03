@@ -14,7 +14,7 @@
 // ENCORE l'ancien filtre : tant qu'elle n'aura pas la meme correction, elle
 // continuera d'effacer ce cache-ci. Les deux doivent etre corrigees.
 const PREFIX = 'draglog-dev-';
-const CACHE = PREFIX + 'v109';   // v109 : ecran divise du DLdisplay -- deux valeurs CAN libres (cles dsp0/dsp1)
+const CACHE = PREFIX + 'v110';   // v110 : choix des valeurs d'ecran par menu deroulant, 38 canaux du Link G4+
 const ASSETS = ['./', './index.html', './manifest.json', './logo.svg', './icon-192.webp', './icon-512.webp'];
 
 self.addEventListener('install', (ev) => {

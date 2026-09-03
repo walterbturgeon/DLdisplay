@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v109<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v110<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -476,8 +476,11 @@ deja active partirait tout seul.</p>
 <div id="grp_dsp" style="display:none;">
 <h3 style="margin:22px 0 0 0;font-size:16px;">Écran — les deux valeurs CAN</h3>
 <p class="small">Le module affiche les jalons a droite de l'ecran et ces
-deux valeurs a gauche, en direct. Tu choisis <b>l'identifiant, l'octet et
-le format</b> : ca marche avec n'importe quelle ECU, sans rien lui imposer.
+deux valeurs a gauche, en direct et en gros caracteres.
+<b>Choisis simplement dans la liste</b> : les 38 mesures du flux
+<b>Generic Dash</b> d'un Link G4+ y sont, et le module se charge de savoir
+ou les lire. Pour une autre ECU, prends <b>Autre — reglage manuel</b> en bas
+de la liste.<br>
 Une valeur qui cesse d'arriver passe en gris a l'ecran — elle ne reste
 jamais figee sur un vieux nombre.</p>
 <div id="dspBlocs"></div>
@@ -1659,13 +1662,94 @@ function remplirDlap(j) {
 var DSP_NB = 2;
 var dspDisponible = false;   // le firmware connecte annonce-t-il `dsp0` ?
 
+// ============================================================
+// LES 38 CANAUX DU FLUX « GENERIC DASH » DU LINK G4+
+// ============================================================
+// Le rang dans cette liste EST le numero de canal envoye au firmware.
+// ⚠ NE JAMAIS REORDONNER NI INSERER AU MILIEU : un reglage deja
+// enregistre dans un module pointerait alors sur une autre mesure, et
+// afficherait un nombre credible et faux. Ajouter uniquement A LA FIN.
+//
+// Structure du flux : un seul identifiant CAN, 13 sous-trames reperees
+// par l'octet 0, trois valeurs de 16 bits par sous-trame en petit
+// boutiste. Le canal N vit dans la sous-trame N/3, au slot N%3.
+// Le firmware fait le decodage ; ici on ne montre qu'un nom.
+var LINK_CANAUX = [
+  'Regime moteur — RPM',
+  'Pression admission MAP — kPa',
+  'Pression relative MGP — kPa',
+  'Pression atmospherique — kPa',
+  'Position papillon — %',
+  'Cycle injecteurs — %',
+  'Cycle injecteurs secondaires — %',
+  'Largeur impulsion injecteur — ms',
+  'Temperature eau — °C',
+  'Temperature air admis — °C',
+  'Tension batterie — V',
+  'Debit d air massique — g/s',
+  'Rapport engage',
+  'Calage injection — °',
+  'Avance allumage — °',
+  'Arbre a cames admission gauche — °',
+  'Arbre a cames admission droit — °',
+  'Arbre a cames echappement gauche — °',
+  'Arbre a cames echappement droit — °',
+  'Lambda 1',
+  'Lambda 2',
+  'Erreurs capteur de position 1',
+  'Nombre de codes defaut',
+  'Pression carburant — kPa',
+  'Temperature huile — °C',
+  'Pression huile — kPa',
+  'Vitesse roue avant gauche — km/h',
+  'Vitesse roue arriere gauche — km/h',
+  'Vitesse roue avant droite — km/h',
+  'Vitesse roue arriere droite — km/h',
+  'Cliquetis cylindre 1',
+  'Cliquetis cylindre 2',
+  'Cliquetis cylindre 3',
+  'Cliquetis cylindre 4',
+  'Cliquetis cylindre 5',
+  'Cliquetis cylindre 6',
+  'Cliquetis cylindre 7',
+  'Cliquetis cylindre 8'
+];
+
+// Identifiant par defaut du flux, tel que PCLink le propose.
+var LINK_ID_DEFAUT = 1000;
+
+// ⚠ LE CHOIX COURANT TIENT EN UN SEUL MENU DEROULANT.
+// La premiere version demandait identifiant, octet, taille, format et
+// ordre des octets pour afficher un regime moteur. C'etait exact et
+// inutilisable. Le menu couvre les 38 canaux du Link ; le reglage manuel
+// reste dessous, replie, pour les ECU qui ne sont pas des Link.
 function dspBlocHtml(i) {
   var p = 'd' + i;
+  var zone = (i === 0) ? 'du HAUT' : 'du BAS';
+
+  var options = '<option value="-2">— Rien, laisser vide —</option>';
+  for (var k = 0; k < LINK_CANAUX.length; k++) {
+    options += '<option value="' + k + '">' + LINK_CANAUX[k] + '</option>';
+  }
+  options += '<option value="-1">Autre — reglage manuel</option>';
+
   return ''
   + '<div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px;">'
+  + '<label for="' + p + 'canal" style="margin:0;"><b>Valeur ' + zone + ' de l\'ecran</b></label>'
+  + '<select id="' + p + 'canal" onchange="dspChangeCanal(' + i + ')"'
+  +   ' style="width:100%;padding:12px;margin-top:8px;font-size:16px;">'
+  +   options
+  + '</select>'
+  + '<div id="' + p + 'apercu" class="small" style="margin-top:8px;"></div>'
+
+  // ---- Repli : tout ce qui suit ne sert qu'au mode manuel ----
+  + '<div id="' + p + 'manuel" style="display:none;border-top:1px solid var(--line);margin-top:12px;padding-top:10px;">'
+  + '<p class="small">Pour une ECU qui n\'est pas un Link. Tu decris toi-meme'
+  + ' ou lire la valeur dans la trame.</p>'
+
   + '<label style="display:flex;align-items:center;gap:8px;margin:0;">'
   +   '<input id="' + p + 'en" type="checkbox" onchange="dspApercu(' + i + ')">'
-  +   '<b>Valeur ' + (i + 1) + ' — afficher a l\'ecran</b>'
+  +   '<b>Afficher cette valeur</b>'
   + '</label>'
 
   + '<label for="' + p + 'nom">Nom affiche (8 caracteres au maximum)</label>'
@@ -1737,7 +1821,7 @@ function dspBlocHtml(i) {
   +   '<option value="3">3 — 3000,417</option>'
   + '</select>'
 
-  + '<div id="' + p + 'apercu" class="small" style="margin-top:8px;"></div>'
+  + '</div>'   // fin du repli manuel
   + '</div>';
 }
 
@@ -1745,13 +1829,38 @@ function dspConstruireBlocs() {
   var h = '';
   for (var i = 0; i < DSP_NB; i++) h += dspBlocHtml(i);
   document.getElementById('dspBlocs').innerHTML = h;
-  for (var k = 0; k < DSP_NB; k++) dspApercu(k);
+  for (var k = 0; k < DSP_NB; k++) dspChangeCanal(k);
+}
+
+// Appelee quand l'utilisateur bouge le menu deroulant.
+//   -2 = rien           -> valeur coupee
+//   -1 = manuel         -> on deplie les champs detailles
+//   0..37 = canal Link  -> tout est deduit, rien a saisir
+function dspChangeCanal(i) {
+  var p = 'd' + i;
+  var canal = parseInt(document.getElementById(p + 'canal').value, 10);
+  document.getElementById(p + 'manuel').style.display = (canal === -1) ? '' : 'none';
+
+  if (canal >= 0) {
+    // La structure du flux est imposee : on ne garde que l'identifiant,
+    // et on pre-remplit celui du Generic Dash.
+    document.getElementById(p + 'en').checked = true;
+    var champId = document.getElementById(p + 'id');
+    var v = parseInt(champId.value, 10);
+    if (!v || v <= 0) champId.value = LINK_ID_DEFAUT;
+    document.getElementById(p + 'ext').value = '0';
+  } else if (canal === -2) {
+    document.getElementById(p + 'en').checked = false;
+  }
+  dspApercu(i);
 }
 
 function dspLireChamps(i) {
   var p = 'd' + i, g = function (s) { return document.getElementById(p + s); };
+  var canal = parseInt(g('canal').value, 10);
   return {
-    en:  g('en').checked ? 1 : 0,
+    canal: canal,
+    en:  (canal === -2) ? 0 : (g('en').checked ? 1 : 0),
     id:  parseInt(g('id').value, 10),
     ext: parseInt(g('ext').value, 10),
     off: parseInt(g('off').value, 10),
@@ -1770,7 +1879,18 @@ function dspLireChamps(i) {
 // champ. Un utilisateur verrait donc sa sauvegarde entiere echouer sans
 // savoir pourquoi. On lui dit ici, avant l'envoi.
 function dspErreur(v) {
+  // Rien a afficher : aucun controle a faire.
+  if (v.canal === -2) return '';
+
   if (isNaN(v.id) || v.id < 0)                   return 'Identifiant CAN manquant.';
+
+  // Canal Link : la structure du flux impose octet, taille, format et
+  // ordre des octets. Seul l'identifiant reste a verifier.
+  if (v.canal >= 0) {
+    if (v.ext ? (v.id > 0x1FFFFFFF) : (v.id > 0x7FF)) return 'Identifiant hors plage.';
+    return '';
+  }
+
   if (v.ext ? (v.id > 0x1FFFFFFF) : (v.id > 0x7FF))
     return 'Identifiant hors plage : ' + (v.ext ? '29 bits s’arrete a 0x1FFFFFFF'
                                                 : '11 bits s’arrete a 0x7FF') + '.';
@@ -1787,21 +1907,32 @@ function dspErreur(v) {
   return '';
 }
 
+// ⚠ Le 12e champ, le canal Link, est AJOUTE A LA FIN. Une chaine ecrite
+// par une version anterieure n'en a que onze : elle doit continuer de se
+// relire sans erreur. Le nom ne peut pas contenir de virgule, donc
+// l'ajout est sans ambiguite.
 function dspVersTexte(v) {
+  var gd = (v.canal >= 0) ? v.canal : -1;
   return [v.en, v.id, v.ext, v.off, v.len, v.fmt, v.be,
-          v.mul, v.add, v.dec, v.nom].join(',');
+          v.mul, v.add, v.dec, v.nom, gd].join(',');
 }
 
 function dspDepuisTexte(t) {
   var c = String(t || '').split(',');
   if (c.length < 10) return null;
+  var gd = (c.length >= 12) ? parseInt(c[11], 10) : -1;
+  if (isNaN(gd)) gd = -1;
+  var en = parseInt(c[0], 10) ? 1 : 0;
   return {
-    en: parseInt(c[0], 10) ? 1 : 0, id: parseInt(c[1], 10) || 0,
+    en: en, id: parseInt(c[1], 10) || 0,
     ext: parseInt(c[2], 10) ? 1 : 0, off: parseInt(c[3], 10) || 0,
     len: parseInt(c[4], 10) || 2, fmt: parseInt(c[5], 10) || 0,
     be: parseInt(c[6], 10) ? 1 : 0, mul: parseFloat(c[7]),
     add: parseFloat(c[8]), dec: parseInt(c[9], 10) || 0,
-    nom: c.slice(10).join(',')
+    nom: (c.length >= 12) ? c[10] : c.slice(10).join(','),
+    // Ce que le menu deroulant doit montrer : un canal Link, sinon
+    // « manuel » si la valeur est active, sinon « rien ».
+    canal: (gd >= 0) ? gd : (en ? -1 : -2)
   };
 }
 
@@ -1821,6 +1952,23 @@ function dspApercu(i) {
     el.innerHTML = '<span style="color:var(--danger);">' + err + '</span>';
     return;
   }
+  if (v.canal === -2) {
+    el.textContent = 'Cette moitie de l’ecran restera vide.';
+    return;
+  }
+
+  if (v.canal >= 0) {
+    // On dit ou la valeur sera lue, sans que l'utilisateur ait rien
+    // saisi : c'est la preuve que le reglage est complet.
+    var sous = Math.floor(v.canal / 3);
+    var slot = v.canal % 3;
+    el.innerHTML = '<b>' + LINK_CANAUX[v.canal] + '</b><br>'
+      + 'Lu sur l’identifiant ' + v.id + ' (0x' + v.id.toString(16).toUpperCase()
+      + '), sous-trame 0x' + ('0' + sous.toString(16).toUpperCase()).slice(-2)
+      + ', octets ' + (2 + slot * 2) + '-' + (3 + slot * 2) + '.';
+    return;
+  }
+
   if (!v.en) { el.textContent = 'Valeur coupee — cette moitie de l’ecran restera vide.'; return; }
 
   el.textContent = 'Lit 0x' + v.id.toString(16).toUpperCase()
@@ -1836,7 +1984,7 @@ function dspRemplir(j) {
     var p = 'd' + i, g = function (s) { return document.getElementById(p + s); };
     g('en').checked = !!v.en;
     g('nom').value  = v.nom;
-    g('id').value   = v.id;
+    g('id').value   = v.id || LINK_ID_DEFAUT;
     g('ext').value  = String(v.ext);
     g('off').value  = v.off;
     g('len').value  = String(v.len);
@@ -1845,7 +1993,10 @@ function dspRemplir(j) {
     g('mul').value  = isNaN(v.mul) ? 1 : v.mul;
     g('add').value  = isNaN(v.add) ? 0 : v.add;
     g('dec').value  = String(v.dec);
-    dspApercu(i);
+    g('canal').value = String(v.canal);
+    // ⚠ Passer par dspChangeCanal et non par dspApercu : c'est lui qui
+    // deplie ou replie le bloc manuel selon le choix relu.
+    dspChangeCanal(i);
   }
 }
 

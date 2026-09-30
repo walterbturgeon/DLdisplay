@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v112<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v113<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -197,6 +197,21 @@ function couleur(nom){
 <div id="bleUnsupported" class="err small" style="margin-top:12px;display:none;">
 Ce navigateur ne fait pas le Bluetooth Web. Prends Chrome sur Android. Sur iPhone, il faut l'app <b>Bluefy</b> — un navigateur tiers de l'App Store, pas un produit Apple.
 </div>
+</div>
+
+<!-- [v113] LE METIER DU DLPT2 (DRAGLOGICS / TRACKLOGICS). Vu par Walter le 30 sept. : connecte au kit 164
+     (en TRACKLOGICS) pour le remettre en DRAGLOGICS, cette page n'offrait AUCUN moyen de le faire -- le
+     reglage n'existait que dans la page de fusion. La carte n'apparait que si le module envoie la cle "app"
+     (regle de la page : les CLES, jamais la version). Le module est le maitre : il enregistre, redemarre, et
+     la page attend de le relire a la reconnexion avant de dire que c'est fait. -->
+<div class="card" id="cardMetier" style="display:none;">
+<h2>Métier de l'appareil</h2>
+<div style="display:flex;gap:12px;flex-wrap:wrap;">
+<button type="button" class="btn" id="btnMetierDlg" style="margin-top:0;flex:1;" onclick="metierDemander('dlg')">DRAGLOGICS</button>
+<button type="button" class="btn" id="btnMetierTrlg" style="margin-top:0;flex:1;" onclick="metierDemander('trlg')">TRACKLOGICS</button>
+</div>
+<p class="small" id="metierEtat" style="margin-top:10px;"></p>
+<p class="small" style="opacity:.7;margin-top:6px;"><b>DRAGLOGICS</b> — courses en ligne droite, jalons, runs envoyés au DLAP.<br><b>TRACKLOGICS</b> — tours de piste, envoyés au collecteur. Le module redémarre pour changer de métier.</p>
 </div>
 
 <div class="card">
@@ -2100,6 +2115,40 @@ var CAPS = [
   { grp: 'grp_dsp',  cle: 'dsp0', nom: 'ecran divise (DLdisplay)', materiel: true }
 ];
 
+// [v113] LE METIER DU DLPT2 -- voir la carte cardMetier. La logique vit ici ; la seule ecriture passe par
+// chrConfig, comme le reste de la configuration.
+var metierActuel = null;
+function metierAfficher(j) {
+  var c = document.getElementById('cardMetier');
+  if (!c) return;
+  if (!j || j.dev === 'DLAP' || j.app == null) { c.style.display = 'none'; metierActuel = null; return; }
+  c.style.display = '';
+  metierActuel = j.app;
+  document.getElementById('btnMetierDlg').className  = 'btn' + (j.app === 'dlg'  ? '' : ' btn2');
+  document.getElementById('btnMetierTrlg').className = 'btn' + (j.app === 'trlg' ? '' : ' btn2');
+  var nom = (j.app === 'trlg') ? 'TRACKLOGICS' : (j.app === 'dlg') ? 'DRAGLOGICS' : String(j.app);
+  document.getElementById('metierEtat').innerHTML = 'Métier actuel : <b>' + nom + '</b>.'
+    + (j.app === 'trlg' ? ' ⚠ Dans ce métier, le module n’envoie <b>aucun run au DLAP</b>.' : '');
+}
+async function metierDemander(tok) {
+  var et = document.getElementById('metierEtat');
+  if (!chrConfig) { et.textContent = 'Connecte d’abord le module.'; return; }
+  if (tok === metierActuel) { et.textContent = 'Le module est déjà dans ce métier.'; return; }
+  var nom = (tok === 'trlg') ? 'TRACKLOGICS' : 'DRAGLOGICS';
+  if (!confirm('Passer le module en ' + nom + ' ? Il va redémarrer.')) return;
+  try {
+    var data = enc.encode(JSON.stringify({ app: tok }));
+    if (typeof chrConfig.writeValueWithResponse === 'function') await chrConfig.writeValueWithResponse(data);
+    else await chrConfig.writeValue(data);
+    // ⚠ ON NE DIT PAS « FAIT » : le module est le maitre, on attend de relire son JSON a la reconnexion.
+    // ⚠ En DRAGLOGICS (PT2.1.51+), le Bluetooth du kit se coupe 20 s apres le demarrage sans connexion.
+    et.innerHTML = 'Changement envoyé. Le module redémarre : <b>reconnecte-toi dans les 20 secondes</b> pour vérifier le métier'
+      + (tok === 'dlg' ? ' (en DRAGLOGICS, le Bluetooth se coupe 20 s après le démarrage ; sinon, éteins et rallume le kit).' : '.');
+  } catch (e) {
+    et.textContent = 'Échec : ' + e.message;
+  }
+}
+
 function appliquerCapacites(j) {
   // [v112] ⚠ UN AUTRE MODULE QUE LA E3B4 FERME LE TABLEAU. Vu par Walter le 30 sept. : connecte a la
   // E3B4, deconnecte, puis reconnecte a un DLPT2 depuis le bouton du tableau -- le tableau restait a
@@ -2116,6 +2165,7 @@ function appliquerCapacites(j) {
     return;
   }
   appliquerModeDlap(false);
+  metierAfficher(j);   // [v113] APRES appliquerModeDlap(false), qui rend toutes les cartes visibles
 
   var manquants = [];
   CAPS.forEach(function (c) {

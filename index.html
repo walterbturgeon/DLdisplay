@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v111<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v112<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -2101,6 +2101,10 @@ var CAPS = [
 ];
 
 function appliquerCapacites(j) {
+  // [v112] ⚠ UN AUTRE MODULE QUE LA E3B4 FERME LE TABLEAU. Vu par Walter le 30 sept. : connecte a la
+  // E3B4, deconnecte, puis reconnecte a un DLPT2 depuis le bouton du tableau -- le tableau restait a
+  // l'ecran, et il detournait encore le flux DUMP (le telechargement des runs du DLPT2 n'aurait rien recu).
+  if (!(j.dev === 'DLAP' && j.carte === 'SD')) fermerTableau();
   // Un DLAP n'est pas un DRAGLOG diminue : on bascule la page entiere et on
   // sort. La banniere "firmware plus ancien" n'aurait aucun sens ici.
   if (j.dev === 'DLAP') {

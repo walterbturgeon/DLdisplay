@@ -970,7 +970,10 @@ async function synchroniser(motif) {
   if (DEMO || !BLE || !BLE.connecte()) return;
   derniereSynchro = Date.now();
   try {
-    cfgE3B4 = await BLE.lireConfig();
+    var c = await BLE.lireConfig();
+    // [v112] garde : jamais de `runs`/`lire` a un DLPT2 (la PWA ferme le tableau, mais on ne compte pas dessus)
+    if (c.dev !== 'DLAP' || c.carte !== 'SD') { jrn('erreur', 'module connecté : ce n’est pas une E3B4 (' + (c.dev || 'DRAGLOG') + ', ' + (c.fw || '?') + ') — rien demandé'); return; }
+    cfgE3B4 = c;
     poserLieuE3B4(cfgE3B4);
     if (!cfgE3B4.sd) jrn('erreur', 'la E3B4 dit : PAS DE CARTE SD — aucun run ne sera confirmé aux kits');
     var rep = await demander('runs'), n = 0, total = 0;

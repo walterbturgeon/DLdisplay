@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="fr-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Tableau DRAGLOGICS</title>
+<!-- [v111] LE VRAI TABLEAU, dans la PWA DRAGLOG : index.html l'ouvre plein ecran, dans un cadre, quand le module
+     connecte se declare "dev":"DLAP" et "carte":"SD" (la E3B4, TBS_dlap). Il parle a la E3B4 par window.parent.tableauBle.
+     Ouvert seul (ou ?demo=1) : la demonstration de la maquette. Banc sans Bluetooth : _essai/banc.html (pas publie).
+     MAQUETTE v2 du 30 sept. 2026, pour les essais DRAGLOGICS du samedi 3 octobre.
+     Ce que la PWA affichera quand elle se connecte a la T-Beam E3B4 (TBS_dlap, DLAP sur carte SD).
+     Runs de DEMONSTRATION au format EXACT du texte que le DLPT2 envoie au DLAP
+     ([dump] RUN #.. / R,... / [dump] J60.. J1320). lireRun() est le lecteur de la vraie page.
+     v2 : barre fixe en bas (Tableau, Passages, Inscriptions, Exporter), classes de competition,
+     journal de diagnostic exportable.
+     v4 (30 sept.) : samedi = 1/4 de mile -> plus de selecteur 1/8-1/4 ; le classement se fait au 1/4 et
+     montre aussi le temps et la VITESSE AU 1/8 (demande du pilote). Onglet Reglages : unites, taille du
+     texte, theme clair/sombre/automatique, langue francais/anglais. Le journal de diagnostic reste en
+     francais (il sert au diagnostic, pas au public). -->
+<style>
+  :root { --bg:#f3f4f6; --card:#fff; --ink:#111; --muted:#667; --line:#e2e4e8; --sel:#1e63d6; --selbg:#e8f0fd;
+          --ok:#1c8f4a; --lent:#c0392b; --att:#e8730c; --tab:#eef0f3; --gros:#0b0d10; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+          --bg:#0f1115; --card:#181b21; --ink:#e9ecf1; --muted:#9aa3ae; --line:#2a2f37; --sel:#5b9bff; --selbg:#1b2a44;
+          --ok:#3cc97a; --lent:#ff6b5e; --att:#ff9a3c; --tab:#20242c; --gros:#ffffff; } }
+  :root[data-theme="dark"] { --bg:#0f1115; --card:#181b21; --ink:#e9ecf1; --muted:#9aa3ae; --line:#2a2f37; --sel:#5b9bff; --selbg:#1b2a44;
+          --ok:#3cc97a; --lent:#ff6b5e; --att:#ff9a3c; --tab:#20242c; --gros:#ffffff; }
+  * { box-sizing:border-box; }
+  /* ⚠ sans cette regle, une classe qui pose display (.chip, .bouton...) annule l'attribut hidden :
+     la pastille DEMO restait visible dans le vrai tableau (banc du 30 sept.) */
+  [hidden] { display:none !important; }
+  html, body { touch-action:pan-x pan-y; overscroll-behavior:none; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; font-size:15px; padding-bottom:76px; }
+  .num { font-variant-numeric:tabular-nums; }
+  header { position:sticky; top:0; z-index:10; background:var(--bg); padding:10px 16px 8px; display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; border-bottom:1px solid var(--line); }
+  .logo { position:relative; width:174px; height:44px; overflow:hidden; background:#fff; border-radius:8px; flex:none; }
+  .logo img { position:absolute; left:0; top:-37px; width:174px; height:116px; }
+  header .evt { border:0; background:transparent; font:inherit; font-weight:600; color:var(--ink); min-width:10ch; padding:2px 4px; border-radius:6px; }
+  header .evt:focus { outline:2px solid var(--sel); }
+  .horloge { font-size:20px; font-weight:700; margin-left:auto; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:var(--card); border:1px solid var(--line); font-size:13px; }
+  .point { width:9px; height:9px; border-radius:50%; background:var(--ok); }
+  .demo { background:var(--att); color:#fff; border:0; font-weight:700; }
+  .outils { display:flex; gap:8px; padding:8px 16px; flex-wrap:wrap; align-items:center; }
+  .seg { display:inline-flex; flex-wrap:wrap; }
+  .reglage { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line); }
+  .reglage:last-of-type { border-bottom:0; }
+  .reglage .nom { font-weight:600; }
+  .seg button { border:1px solid var(--line); background:var(--card); color:var(--ink); padding:8px 14px; font:inherit; cursor:pointer; border-radius:0; }
+  .seg button:first-child { border-radius:10px 0 0 10px; } .seg button:last-child { border-radius:0 10px 10px 0; }
+  .seg button.on { background:var(--sel); border-color:var(--sel); color:#fff; }
+  main { padding:4px 16px 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .card h2 { margin:0 0 10px; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .grille { display:grid; gap:14px; grid-template-columns:1fr; }
+  /* ⚠ sans min-width:0, une colonne de grille prend la largeur du tableau le plus large et la page deborde
+     (vu en « Tres grand ») ; avec, le tableau defile dans sa carte (.defile) */
+  .grille > * { min-width:0; }
+  @media (min-width:1000px) { .grille.tableau { grid-template-columns:1.35fr 1fr; } .grille.passages { grid-template-columns:1.1fr 1fr; } .grille.deux { grid-template-columns:1.4fr 1fr; } }
+  .dernier .qui { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .dernier .pilote { font-size:34px; font-weight:800; line-height:1.1; }
+  .dernier .voiture { color:var(--muted); font-size:15px; }
+  .dernier .et { font-size:64px; font-weight:800; color:var(--gros); line-height:1; margin:10px 0 2px; }
+  .dernier .et small { font-size:20px; font-weight:600; color:var(--muted); margin-left:10px; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+  .badge.pb { background:var(--ok); color:#fff; }
+  .badge.att { background:var(--att); color:#fff; }
+  .badge.cl { background:var(--tab); color:var(--ink); border:1px solid var(--line); }
+  /* le numero de course, comme une plaque : fond noir, chiffre blanc (bordure claire en mode sombre) */
+  .plaque { display:inline-block; min-width:2.2em; padding:1px 6px; margin-right:6px; border-radius:5px; background:#111; color:#fff;
+            border:1px solid #111; font-weight:800; text-align:center; font-variant-numeric:tabular-nums; }
+  :root[data-theme="dark"] .plaque { border-color:#555; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .plaque { border-color:#555; } }
+  .dernier .pilote .plaque { font-size:26px; padding:2px 10px; vertical-align:4px; }
+  input.num-course { width:5.5em; min-width:0; text-align:center; font-weight:700; }
+  .partiels { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; margin-top:12px; }
+  .tuile { background:var(--tab); border-radius:10px; padding:8px 10px; }
+  .tuile .lab { font-size:11px; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; }
+  .tuile .val { font-size:22px; font-weight:700; }
+  .tuile .vit { font-size:12px; color:var(--muted); }
+  .tuile .ecart { font-size:12px; font-weight:700; }
+  .plus { color:var(--lent); } .moins { color:var(--ok); }
+  @keyframes arrivee { 0% { box-shadow:0 0 0 0 var(--sel); } 60% { box-shadow:0 0 0 10px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
+  .arrive { animation:arrivee 1.2s ease-out 2; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:7px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { font-size:11px; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; font-weight:600; }
+  td.n, th.n { text-align:right; }
+  tr.clic { cursor:pointer; } tr.clic:hover td { background:var(--tab); } tr.choisi td { background:var(--selbg); }
+  .rang { font-weight:800; width:2.2em; }
+  .tableau-classement td { font-size:16px; }
+  .recents .ligne { display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .recents .ligne:last-child { border-bottom:0; }
+  .recents .h { color:var(--muted); width:4.5em; } .recents .p { font-weight:700; flex:1; } .recents .t { font-weight:700; }
+  .defile { overflow-x:auto; }
+  .filtres { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  select, input[type=text] { font:inherit; padding:7px 9px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  input[type=text] { width:100%; min-width:9ch; }
+  .nav-run { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+  .nav-run .pos { color:var(--muted); margin:0 auto; }
+  .bouton { font:inherit; padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  .bouton:disabled { opacity:.45; cursor:default; }
+  .bouton.plein { background:var(--sel); border-color:var(--sel); color:#fff; font-weight:600; }
+  svg.courbe { width:100%; height:190px; display:block; }
+  svg.courbe text { fill:var(--muted); font-size:10px; }
+  details { margin-top:10px; } summary { cursor:pointer; color:var(--muted); }
+  pre { font-size:11px; background:var(--tab); padding:8px; border-radius:8px; max-height:220px; overflow:auto; }
+  .aide { color:var(--muted); font-size:13px; }
+  .vide { color:var(--muted); padding:20px 0; text-align:center; }
+  .export .ligne { display:flex; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .export .ligne:last-child { border-bottom:0; }
+  .export .quoi { flex:1; } .export .quoi b { display:block; }
+  .journal { font-family:ui-monospace,Consolas,monospace; font-size:12px; max-height:360px; overflow:auto; background:var(--tab); border-radius:8px; padding:8px; }
+  .journal div { padding:2px 0; } .journal .j-att { color:var(--att); font-weight:700; }
+  .classes .ligne { display:flex; gap:8px; align-items:center; padding:6px 0; }
+  /* LA BARRE DU BAS, fixe -- comme la page TRACLOGICS */
+  #barbas { position:fixed; left:0; right:0; bottom:0; z-index:20; display:flex; background:var(--card); border-top:1px solid var(--line);
+            padding:0 2px calc(4px + env(safe-area-inset-bottom)); }
+  #barbas button { flex:1; background:none; border:0; color:var(--muted); font:inherit; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+                   padding:10px 1px 6px; display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; position:relative; }
+  #barbas button svg { width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+  #barbas button.actif { color:var(--sel); }
+  /* le bouton de connexion : orange quand il faut agir (deconnecte), vert quand le lien tient */
+  #barbas button.cx-off { color:var(--att); }
+  #barbas button.cx-on { color:var(--ok); }
+  #barbas button.cx-cx { color:var(--muted); }
+  #bandeau { position:sticky; top:0; z-index:15; display:none; background:var(--att); color:#fff; font-weight:700; padding:10px 16px; cursor:pointer; }
+  #bandeau.vu { display:block; }
+  .point.off { background:var(--att); }
+  #barbas button.actif::before { content:''; position:absolute; top:0; left:26%; right:26%; height:3px; border-radius:0 0 3px 3px; background:var(--sel); }
+  @media (max-width:640px) { .dernier .et { font-size:48px; } .partiels { grid-template-columns:repeat(2, minmax(0, 1fr)); } .dernier .pilote { font-size:26px; } }
+</style>
+</head>
+<body>
+<header>
+  <!-- le VRAI logo (logo.svg de la PWA, « DRAGLOGICS by BPS »). Le fichier fait 1536 x 1024 avec une
+       grande marge blanche : on ne montre que la bande du logo (32 % a 70 % de la hauteur), sur une
+       plaque blanche, pour que son fond blanc reste propre en mode sombre. -->
+  <div class="logo"><img src="logo.svg" alt="DRAGLOGICS by BPS"></div>
+  <input class="evt" id="evt" data-i18n-aria="evtAria" aria-label="Nom de l'événement">
+  <span class="chip"><span class="point off" id="pointE3B4"></span><span id="etatE3B4">E3B4 · non connectée</span></span>
+  <span class="chip demo" id="chipDemo" data-i18n="demo">DÉMO</span>
+  <span class="horloge num" id="horloge"></span>
+</header>
+<div id="bandeau" role="button" data-i18n="bandeau">E3B4 déconnectée — les runs ne rentrent pas. Toucher pour connecter.</div>
+<div class="outils" id="outils">
+  <select id="fClasse" data-i18n-aria="classeAria" aria-label="Classe"><option value="">Toutes les classes</option></select>
+</div>
+<main>
+  <!-- ============ TABLEAU ============ -->
+  <section id="v-tableau">
+    <div class="grille tableau">
+      <div class="card dernier" id="carteDernier"></div>
+      <!-- le classement se fait au 1/4 ; chaque ligne est la fiche du MEILLEUR run du pilote (60 pi, 1/8 et vitesses de ce run) -->
+      <div class="card"><h2 id="titreClassement">Classement</h2><div class="defile"><table class="tableau-classement"><thead><tr><th>#</th><th data-i18n="thPilote">Pilote</th><th class="n" data-lab="1320">1/4</th><th class="n" data-uvd="1320">V 1/4</th><th class="n" data-lab="660">1/8</th><th class="n" data-uvd="660">V 1/8</th><th class="n" data-lab="60">60 pi</th><th class="n" data-i18n="thEcart">Écart</th><th class="n" data-i18n="thRuns">Runs</th></tr></thead><tbody id="classement"></tbody></table></div></div>
+      <div class="card recents"><h2 data-i18n="recents">Passages récents</h2><div id="recents"></div></div>
+      <div class="card" id="carteDemo"><h2 data-i18n="demoTitre">Démo</h2>
+        <p class="aide" data-i18n="demoAide">La maquette ajoute un passage de démonstration toutes les 20 s, comme si la E3B4 en recevait un.</p>
+        <button class="bouton" id="btnAjout" data-i18n="demoAjout">+ un passage maintenant</button>
+        <label style="margin-left:10px"><input type="checkbox" id="auto" checked> <span data-i18n="demoAuto">automatique</span></label>
+      </div>
+    </div>
+  </section>
+  <!-- ============ PASSAGES (la base) ============ -->
+  <section id="v-passages" hidden>
+    <div class="grille passages">
+      <div class="card">
+        <h2 data-i18n="tousPassages">Tous les passages</h2>
+        <div class="filtres">
+          <select id="fPilote"><option value="">Tous les pilotes</option></select>
+          <select id="fStatut"><option value="" data-i18n="tous">Tous</option><option value="TERMINE" data-i18n="termines">Terminés</option><option value="ABANDON" data-i18n="abandons">Abandons</option></select>
+        </div>
+        <div class="defile"><table><thead><tr><th data-i18n="thHeure">Heure</th><th data-i18n="thPilote">Pilote</th><th class="n" data-lab="60">60 pi</th><th class="n" data-lab="330">330 pi</th><th class="n" data-lab="660">1/8</th><th class="n" data-uvd="660">V 1/8</th><th class="n" data-lab="1320">1/4</th><th class="n" data-uvd="1320">V 1/4</th></tr></thead><tbody id="liste"></tbody></table></div>
+      </div>
+      <div class="card" id="detail"></div>
+    </div>
+  </section>
+  <!-- ============ INSCRIPTIONS : pilotes et classes ============ -->
+  <section id="v-inscriptions" hidden>
+    <div class="grille deux">
+      <div class="card">
+        <h2 data-i18n="inscriptions">Inscriptions</h2>
+        <p class="aide" data-i18n="inscrAide">Chaque voiture reçoit son numéro de course, un pilote et une classe. Ils s'appliquent à tous ses runs. Pour un run conduit par quelqu'un d'autre, change le pilote dans Passages : ce choix ne touche que ce run.</p>
+        <div class="defile"><table><thead><tr><th data-i18n="thVoiture">Voiture (module)</th><th data-i18n="thNo">N°</th><th data-i18n="thPilote">Pilote</th><th data-i18n="thClasse">Classe</th><th class="n" data-i18n="thRuns">Runs</th></tr></thead><tbody id="tInscr"></tbody></table></div>
+      </div>
+      <div class="card classes">
+        <h2 data-i18n="classesTitre">Classes de compétition</h2>
+        <div id="listeClasses"></div>
+        <div class="ligne"><input type="text" id="nouvelleClasse" data-i18n-ph="nouvelleClasse" placeholder="Nouvelle classe (ex. Street, Modifiée)"><button class="bouton plein" id="ajoutClasse" data-i18n="ajouter">Ajouter</button></div>
+        <p class="aide" data-i18n="classeAide">Une classe vidée de son nom est retirée ; ses voitures passent en « Sans classe ».</p>
+      </div>
+    </div>
+  </section>
+  <!-- ============ REGLAGES : unites, taille du texte, theme, langue ============ -->
+  <section id="v-reglages" hidden>
+    <div class="grille deux">
+      <div class="card">
+        <h2 data-i18n="affichage">Affichage</h2>
+        <div class="reglage"><span class="nom" data-i18n="taille">Taille du texte</span>
+          <div class="seg" data-r="taille"><button data-v="petit" data-i18n="tPetit">Petit</button><button data-v="normal" data-i18n="tNormal">Normal</button><button data-v="grand" data-i18n="tGrand">Grand</button><button data-v="tgrand" data-i18n="tTresGrand">Très grand</button></div></div>
+        <div class="reglage"><span class="nom" data-i18n="theme">Thème</span>
+          <div class="seg" data-r="theme"><button data-v="auto" data-i18n="thAuto">Automatique</button><button data-v="light" data-i18n="thClair">Clair</button><button data-v="dark" data-i18n="thSombre">Sombre</button></div></div>
+        <div class="reglage"><span class="nom" data-i18n="langue">Langue</span>
+          <div class="seg" data-r="langue"><button data-v="fr">Français</button><button data-v="en">English</button></div></div>
+        <p class="aide" data-i18n="themeAide">Automatique suit le réglage clair ou sombre de la tablette.</p>
+      </div>
+      <div class="card">
+        <h2 data-i18n="unites">Unités</h2>
+        <div class="reglage"><span class="nom" data-i18n="temperature">Température</span><div class="seg" data-u="temp"><button data-v="C">°C</button><button data-v="F">°F</button></div></div>
+        <div class="reglage"><span class="nom" data-i18n="vitesse">Vitesse</span><div class="seg" data-u="vit"><button data-v="kmh">km/h</button><button data-v="mph">mph</button></div></div>
+        <div class="reglage"><span class="nom" data-i18n="distance">Distance</span><div class="seg" data-u="dist"><button data-v="pi" data-i18n="pieds">Pieds</button><button data-v="m" data-i18n="metres">Mètres</button></div></div>
+        <p class="aide" data-i18n="unitesAide">Les runs restent enregistrés tels que le kit les envoie (km/h, pieds). Le choix ne change que l’affichage et les exports.</p>
+      </div>
+      <div class="card">
+        <h2 data-i18n="meteo">Météo</h2>
+        <p class="aide" data-i18n="meteoAide">Quand Internet est disponible, la page note la météo au lieu de la course dans chaque run (température, humidité, pression, vent). Elle ne l’affiche pas : elle part dans les exports.</p>
+        <p class="aide" id="etatMeteo"></p>
+      </div>
+      <div class="card" id="carteE3B4">
+        <h2 data-i18n="e3b4Titre">E3B4</h2>
+        <div class="reglage"><button class="bouton" id="btnRelire" data-i18n="relireCarte">Relire la carte SD</button><button class="bouton" id="btnRetour" data-i18n="retourConfig">Page de configuration</button></div>
+        <p class="aide" data-i18n="e3b4Aide"></p>
+      </div>
+    </div>
+  </section>
+  <!-- ============ EXPORTER ============ -->
+  <section id="v-exporter" hidden>
+    <div class="grille deux">
+      <div class="card export">
+        <h2 data-i18n="exporter">Exporter</h2>
+        <div class="ligne"><div class="quoi"><b data-i18n="xTout">Tout exporter</b><span class="aide" data-i18n="xToutAide">Les fichiers ci-dessous, un par un. La sauvegarde part en premier.</span></div><button class="bouton plein" id="xTout" data-i18n="btnTout">Tout</button></div>
+        <div class="ligne"><div class="quoi"><b data-i18n="xJson">Sauvegarde complète (JSON)</b><span class="aide" data-i18n="xJsonAide">Runs bruts, inscriptions, classes, journal : tout pour reconstruire la page.</span></div><button class="bouton" id="xJson">JSON</button></div>
+        <div class="ligne"><div class="quoi"><b data-i18n="xJournal">Journal de diagnostic (CSV)</b><span class="aide" data-i18n="xJournalAide">Ce que la page a vu : connexions, runs reçus, changements, exports, erreurs.</span></div><button class="bouton" id="xJournal">CSV</button></div>
+        <div class="ligne"><div class="quoi"><b data-i18n="xRes">Résultats (CSV)</b><span class="aide" data-i18n="xResAide">Un run par ligne : heure, pilote, classe, partiels, vitesses, statut.</span></div><button class="bouton" id="xResultats">CSV</button></div>
+        <div class="ligne"><div class="quoi"><b data-i18n="xBruts">Runs bruts (TXT)</b><span class="aide" data-i18n="xBrutsAide">Le texte de chaque run, tel qu'il est sur la carte SD.</span></div><button class="bouton" id="xBruts">TXT</button></div>
+        <div class="ligne"><div class="quoi"><b data-i18n="xSd">Journal de la E3B4 (carte SD)</b><span class="aide" data-i18n="xSdAide">Chaque trame radio reçue et émise. La E3B4 sait l’envoyer (TDL.0.02) ; le bouton marchera avec la vraie connexion BLE.</span></div><button class="bouton" id="xSd">SD</button></div>
+        <p class="aide" id="bilanExport"></p>
+      </div>
+      <div class="card">
+        <h2 data-i18n="journalDiag">Journal de diagnostic</h2>
+        <div class="journal" id="journal"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="barbas">
+  <button id="btnCx" class="cx-off"><svg viewBox="0 0 24 24"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg><span id="btnCxTxt">Connecter</span></button>
+  <button data-vue="tableau" class="actif"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg><span data-i18n="bTableau">Tableau</span></button>
+  <button data-vue="passages"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span data-i18n="bPassages">Passages</span></button>
+  <button data-vue="inscriptions"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6"/><path d="M16 7h5M16 11h5M18.5 4.5v9"/></svg><span data-i18n="bInscr">Inscriptions</span></button>
+  <button data-vue="reglages"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg><span data-i18n="bReglages">Réglages</span></button>
+  <button data-vue="exporter"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 17v2.5h16V17"/></svg><span data-i18n="bExporter">Exporter</span></button>
+</div>
+
+<script>
+// ===================================================================
+// [v111] VRAI TABLEAU OU DEMONSTRATION
+// Dans la PWA DRAGLOG, cette page vit dans un cadre et parle a la E3B4 par l'adaptateur
+// window.parent.tableauBle -- JAMAIS par navigator.bluetooth (le jour du portage en appli,
+// seul l'adaptateur change). Ouverte seule, ou avec ?demo=1 : la demonstration de la maquette.
+// ⚠ Les cles de stockage different (tdlsd_ / tdl_) : la maquette et la PWA partagent le meme
+// domaine, donc le meme localStorage ; sans ca, les pilotes de demonstration de la maquette
+// apparaitraient dans le vrai tableau de la tablette.
+// ===================================================================
+var BLE = null;
+try { if (window.parent && window.parent !== window && window.parent.tableauBle) BLE = window.parent.tableauBle; } catch (e) {}
+var DEMO = !BLE || /[?&]demo=1/.test(location.search);
+var LS = DEMO ? 'tdl_' : 'tdlsd_';
+// ===================================================================
+// LE LECTEUR DE RUN -- celui de la vraie page. Entree : le texte BRUT
+// que le DLPT2 envoie au DLAP (et que la E3B4 ecrit sur la SD).
+// ===================================================================
+// ⚠⚠ LES DEUX HORLOGES D'UN RUN (modele « zero offset » du 20 juillet 2026, valide en piste) :
+//   - les temps des jalons (J60..J1320) comptent depuis T0 = le passage du 1er PIED, comme le
+//     faisceau de depart d'une piste. C'est ce que le kit met sur le bus CAN ;
+//   - les lignes R, comptent depuis le DECLENCHEMENT (1,1 km/h), negatives avant.
+// T0 n'est PAS dans le texte du run. L'en-tete « rollout_ms=0 » est l'ANCIEN decalage en temps
+// (perfRolloutMs, avant la v6.5), pas ce T0. On le retrouve comme le kit : l'instant ou dist_ft
+// franchit 1,0 pied, interpole entre deux lignes R.
+function passage(ech, pieds) {
+  for (var i = 1; i < ech.length; i++) {
+    var a = ech[i - 1], b = ech[i];
+    if (a.d < pieds && b.d >= pieds) { var f = (b.d > a.d) ? (pieds - a.d) / (b.d - a.d) : 1; return a.t + f * (b.t - a.t); }
+  }
+  return null;
+}
+function lireRun(txt) {
+  var r = lireRunBrut(txt); r.t0 = passage(r.ech, 1.0); return r;
+}
+function lireRunBrut(txt) {
+  var r = { seq: 0, heure: '', unit: '', statut: '', t60: 0, t330: 0, t660: 0, t1320: 0, v330: 0, v660: 0, v1320: 0, ech: [] };
+  txt.split('\n').forEach(function (l) {
+    l = l.trim(); var m;
+    if ((m = l.match(/^\[dump\] RUN #(\d+)(.*)$/))) {
+      r.seq = +m[1];
+      var h = m[2].match(/heure=(\S+)/); if (h) r.heure = h[1];
+      var u = m[2].match(/unit=(\S+)/); if (u) r.unit = u[1];
+      var s = m[2].match(/statut=(\S+)/); if (s) r.statut = s[1];
+    } else if ((m = l.match(/^\[dump\] J(60|330|660|1320) t_ms=(\d+)(.*)$/))) {
+      r['t' + m[1]] = +m[2];
+      var vt = m[3].match(/vtrap_x100=(\d+)/); if (vt) r['v' + m[1]] = +vt[1] / 100;
+    } else if (l.indexOf('R,') === 0) {
+      var c = l.split(','); r.ech.push({ t: +c[1], v: +c[2] / 100, d: +c[3] });
+    }
+  });
+  return r;
+}
+
+// ===================================================================
+// DONNEES DE DEMONSTRATION (seront remplacees par la E3B4)
+// ===================================================================
+// LE CALCUL DU KIT, copie EXACTE de DRAGLOG_PT2.ino : perfTick (lignes 7634-7812),
+// perfCross (6588), trapSpeedX100 (6609). Les runs de demonstration passent par lui : ils
+// portent donc les MEMES temps que ceux que le kit met sur le bus CAN.
+//   depart   : premier echantillon au-dessus de 1,1 km/h (PERF_TRIGGER_KMH)
+//   distance : integration trapezoidale de la vitesse, echantillon par echantillon
+//   T0       : passage interpole du 1er pied ; jalon D = passage de D+1 pied ; temps = t(D+1) - T0
+//   trap     : 66 pi / (t(D+1) - t(D-65)) ; au 60 pi, pas de trap (la fenetre sortirait de la piste)
+var PERF_TRIGGER_KMH = 1.1, PERF_FT_PER_M = 3.28084, PERF_TIMEOUT_MS = 20000;
+function calculKit(ech) {                 // ech : [{ ms, x100 }] a la cadence du GPS
+  var p = null, R = [], pre = [], tRoll = null, trap = {}, j = {}, fini = false;
+  function croise(cible, prevD, prevEl, prevKmh, kmh, el, d) {
+    var span = d - prevD, f = span > 0 ? (cible - prevD) / span : 1; f = Math.min(1, Math.max(0, f));
+    return { t: prevEl + Math.floor(f * (el - prevEl) + 0.5), v: Math.floor((prevKmh + f * (kmh - prevKmh)) * 100 + 0.5) };
+  }
+  function vTrap(tc, tDebut, inst) {
+    if (tDebut == null || tc <= tDebut) return inst;
+    var kmh = (66 / ((tc - tDebut) / 1000)) * 1.09728; if (kmh > 500) return inst;
+    return Math.floor(kmh * 100 + 0.5);
+  }
+  for (var i = 0; i < ech.length && !fini; i++) {
+    var s = ech[i], kmh = s.x100 / 100;
+    if (!p) {
+      if (kmh > PERF_TRIGGER_KMH) {
+        p = { trig: s.ms, d: 0, last: kmh, lastMs: s.ms };
+        pre = ech.slice(Math.max(0, i - 7), i).map(function (x) { return [x.ms - s.ms, x.x100, 0]; });   // le tampon avant le depart (pre=7)
+      }
+      continue;
+    }
+    if (s.ms - p.trig > PERF_TIMEOUT_MS) break;                           // TIMEOUT : 1320 pi pas atteints
+    var dt = s.ms - p.lastMs, prevKmh = p.last, prevD = p.d, prevEl = p.lastMs - p.trig;
+    if (dt > 0 && dt < 500) p.d += (kmh + p.last) * 0.5 * (1000 / 3600) * (dt / 1000) * PERF_FT_PER_M;
+    p.last = kmh; p.lastMs = s.ms;
+    var el = s.ms - p.trig;
+    R.push([el, s.x100, p.d]);
+    if (tRoll == null && p.d >= 1) tRoll = croise(1, prevD, prevEl, prevKmh, kmh, el, p.d).t;
+    [330, 660, 1320].forEach(function (D) { if (trap[D] == null && p.d >= D - 65) trap[D] = croise(D - 65, prevD, prevEl, prevKmh, kmh, el, p.d).t; });
+    [60, 330, 660, 1320].forEach(function (D) {
+      if (j[D] || p.d < D + 1) return;
+      var c = croise(D + 1, prevD, prevEl, prevKmh, kmh, el, p.d);
+      j[D] = { t: c.t > tRoll ? c.t - tRoll : 0, vc: c.v, vt: D === 60 ? 0 : vTrap(c.t, trap[D], c.v) };
+      if (D === 1320) fini = true;
+    });
+  }
+  return { R: R, pre: pre, tRoll: tRoll, j: j, statut: j[1320] ? 'TERMINE' : 'ABANDON' };
+}
+// le texte du run, au caractere pres comme runToText() du kit (lignes 1574-1628)
+function texteRun(unit, seq, heure, c) {
+  var L = ['[dump] RUN #' + seq + ' heure=' + heure + ' src=SEUIL_GPS rollout_ms=0 unit=' + unit + ' dyn=7 rate_ms=40 gps=1 pre=' + c.pre.length + ' imuf=2/7 ecu=HP statut=' + c.statut,
+           '[dump] colonnes: R,elapsed_ms,kmh_x100,dist_ft,ax_mg,ay_mg,az_mg,gx_ds10,gy_ds10,gz_ds10'];
+  c.pre.concat(c.R).forEach(function (x) { L.push('R,' + x[0] + ',' + x[1] + ',' + x[2].toFixed(1) + ',0,0,1000,0,0,0'); });
+  [60, 330, 660, 1320].forEach(function (D) {
+    var x = c.j[D]; if (!x || !x.t) return;
+    L.push('[dump] J' + D + ' t_ms=' + x.t + (D === 60 ? '' : ' vcross_x100=' + x.vc + ' vtrap_x100=' + x.vt));
+  });
+  L.push('[dump] FIN RUN #' + seq + ' t60=' + (c.j[60] ? c.j[60].t : 0) + ' t330=' + (c.j[330] ? c.j[330].t : 0) + ' t660=' + (c.j[660] ? c.j[660].t : 0) + ' t1320=' + (c.j[1320] ? c.j[1320].t : 0));
+  return L.join('\n');
+}
+// LA COURSE SIMULEE DU KIT : simProfileKmh() et serviceSimRun() (lignes 6317-6376), 25 Hz,
+// 1,5 s a l'arret (0,40 km/h, sous le seuil), puis le profil. Le mot `sim` du kit produit la meme.
+function simProfileKmh(tMs) {
+  var P = [[0, 1.2], [774, 50.9], [1547, 70.0], [3056, 91.3], [4565, 140.0], [5526, 200.1], [6486, 213.8], [7926, 257.3], [9366, 277.4],
+           [11000, 240.0], [13500, 150.0], [16000, 70.0], [18000, 20.0], [20000, 0.0]];
+  if (tMs >= P[P.length - 1][0]) return P[P.length - 1][1];
+  for (var i = 1; i < P.length; i++) if (tMs <= P[i][0]) { var f = (tMs - P[i - 1][0]) / (P[i][0] - P[i - 1][0]); return P[i - 1][1] + (P[i][1] - P[i - 1][1]) * f; }
+  return 0;
+}
+function echantillonsSimKit() {
+  var e = [];
+  for (var t = 0; t < 1500; t += 40) e.push({ ms: t, x100: 40 });
+  for (var tr = 0; tr <= 21000; tr += 40) e.push({ ms: 1500 + tr, x100: Math.floor(simProfileKmh(tr) * 100 + 0.5) });
+  return e;
+}
+
+// ===================================================================
+// DONNEES DE DEMONSTRATION (seront remplacees par la E3B4)
+// ===================================================================
+var VOITURES = [
+  { unit: 'SIMUL', nom: 'Course simulée du kit', sim: true },
+  { unit: 'RIVET', nom: '944 turbo', vmax: 212, tau: 6.9 },
+  { unit: 'RAOUL', nom: 'Voiture 120', vmax: 205, tau: 7.4 },
+  { unit: 'SH_56', nom: 'Voiture 164', vmax: 196, tau: 7.9 }
+];
+var graine = 20261003;
+function alea() { graine = (graine * 1103515245 + 12345) % 2147483648; return graine / 2147483648; }
+var compteur = { SIMUL: 0, RIVET: 0, RAOUL: 0, SH_56: 0 };
+var heureDemo = 10 * 3600 + 5 * 60;
+// une voiture de demonstration : une vitesse physique a 25 Hz, passee par le calcul du kit
+function echantillonsVoiture(v, abandon) {
+  var e = [], vmax = v.vmax * (0.97 + alea() * 0.05), tau = v.tau * (0.97 + alea() * 0.06), leve = 3 + alea() * 3, kmh = 0;
+  for (var t = 0; t < 1000; t += 40) e.push({ ms: t, x100: 30 + Math.floor(alea() * 20) });   // a l'arret : bruit GPS sous 1,1 km/h
+  for (var tr = 0; tr <= 21000; tr += 40) {
+    var s = tr / 1000; kmh = vmax * (1 - Math.exp(-s / tau));
+    if (abandon && s > leve) kmh = Math.max(0, vmax * (1 - Math.exp(-leve / tau)) * (1 - (s - leve) / 5));   // leve le pied et freine : pas de 1320
+    e.push({ ms: 1000 + tr, x100: Math.max(0, Math.floor(kmh * 100 + (alea() - 0.5) * 30 + 0.5)) });
+  }
+  return e;
+}
+function fabriquerRun(v) {
+  compteur[v.unit]++; heureDemo += 240 + Math.floor(alea() * 420);
+  var c = calculKit(v.sim ? echantillonsSimKit() : echantillonsVoiture(v, alea() < 0.12));
+  return texteRun(v.unit, compteur[v.unit], hms(heureDemo), c);
+}
+function hms(s) { s = Math.floor(s) % 86400; var h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (x < 10 ? '0' : '') + x; }
+
+// ===================================================================
+// ETAT DE LA PAGE
+// ===================================================================
+var runs = [], dist = 1320, choisi = null, vue = 'tableau';
+function lsLire(k, def) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
+function lsEcrire(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+var inscr = lsLire(LS + 'inscr', !DEMO ? {} : { SIMUL: { num: '', pilote: 'Course simulée (kit)', classe: 'Ouverte' }, RIVET: { num: '77', pilote: 'Rivet', classe: 'Ouverte' }, RAOUL: { num: '', pilote: 'Raoul', classe: 'Ouverte' }, SH_56: { num: '', pilote: 'SH 56', classe: 'Ouverte' } });
+var classes = lsLire(LS + 'classes', ['Ouverte']);
+var parRun = lsLire(LS + 'parRun', {});
+var journal = [];
+function jrn(type, msg) {
+  journal.push({ t: new Date().toISOString(), type: type, msg: msg });
+  if (vue === 'exporter') rendreJournal();
+}
+function piloteDe(r) { return parRun[r.id] || (inscr[r.unit] && inscr[r.unit].pilote) || r.unit; }
+function classeDe(r) { return (inscr[r.unit] && inscr[r.unit].classe) || t('sansClasse'); }
+function numDe(u) { return (inscr[u] && inscr[u].num) || ''; }
+// la plaque : rien si la voiture n'a pas encore de numero (on n'invente pas de numero)
+function plaque(u) { var n = numDe(u); return n ? '<span class="plaque">' + esc(n) + '</span>' : ''; }
+function voitureDe(u) { var v = VOITURES.filter(function (x) { return x.unit === u; })[0]; return v ? v.nom : u; }
+// [v111] ⚠ LE NUMERO DU RUN VIENT DU NOM DU FICHIER, PAS DU TEXTE. Le kit ecrit toujours
+// « [dump] RUN #1 » dans le texte qu'il envoie au DLAP (vu sur les runs 20 a 39 du kit 28) :
+// lu dans le texte, tous les runs d'un kit auraient le meme numero et se remplaceraient.
+// La E3B4 range chaque run dans /runs/<carte>_<run>.txt (ou _vN si deux contenus differents).
+// extra : { chemin, recuMs, meteo, silence } -- silence = relu dans la tablette, pas un nouveau run.
+function ajouterTexte(txt, board, id, seq, extra) {
+  extra = extra || {};
+  var r = lireRun(txt);
+  r.board = board || r.unit; if (seq) r.seq = seq; r.id = id || (r.board + '_' + r.seq);
+  r.texte = txt; r.recuMs = extra.recuMs || Date.now(); r.chemin = extra.chemin || ''; if (extra.meteo) r.meteo = extra.meteo;
+  if (runs.some(function (x) { return x.id === r.id; })) { if (!extra.silence) jrn('run', 'run ' + r.id + ' déjà dans la base : ignoré'); return null; }
+  runs.push(r);
+  meteoPour(r);
+  if (!extra.silence) jrn('run', 'run ' + r.id + ' reçu : ' + piloteDe(r) + ', ' + r.statut + ', 1/4 ' + s3(r.t1320) + ' s, ' + r.ech.length + ' échantillons');
+  if (!r.unit || !r.seq) jrn('erreur', 'run ' + r.id + ' : en-tête incomplet (unit ou numéro manquant)');
+  return r;
+}
+// l'ordre du tableau : le jour de reception, puis l'heure du run (heure locale du kit). Le texte du run n'a
+// pas de date : un run de la veille relu ce matin sur la carte prendrait la date d'aujourd'hui.
+function cleOrdre(r) { var d = new Date(r.recuMs); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate() + ' ' + (r.heure || '') + ' ' + r.id; }
+// [v111] LE DERNIER PASSAGE = le dernier ARRIVE dans la tablette (par tranches de 30 s), puis l'heure du run.
+// Un run qui vient d'arriver passe donc devant, meme si l'horloge de son kit est fausse (au banc, sans GPS,
+// les heures des kits ne veulent rien dire) ; dans un lot relu a la connexion, c'est l'heure qui departage.
+function cleRecent(r) { return String(Math.floor((r.recuMs || 0) / 30000)).padStart(12, '0') + ' ' + (r.heure || '') + ' ' + r.id; }
+function recents(n) { return runs.slice().sort(function (a, b) { var x = cleRecent(a), y = cleRecent(b); return x < y ? 1 : x > y ? -1 : 0; }).slice(0, n); }
+function trierRuns() { runs.sort(function (a, b) { var x = cleOrdre(a), y = cleOrdre(b); return x < y ? -1 : x > y ? 1 : 0; }); }
+function vD(r, d) { return d === 660 ? r.v660 : r.v1320; }
+function s3(ms) { return ms ? (ms / 1000).toFixed(3) : '—'; }
+// [unites] les runs restent en km/h et en pieds (tels que le kit les envoie) : on ne convertit qu'a l'affichage et a l'export
+var U = lsLire(LS + 'unites', { temp: 'C', vit: 'kmh', dist: 'pi' });
+function k1(v) { return v ? (U.vit === 'mph' ? v * 0.621371 : v).toFixed(1) : '—'; }
+function uV() { return U.vit === 'mph' ? 'mph' : 'km/h'; }
+function lab(D) { return (U.dist === 'm' ? { 60: '18 m', 330: '101 m', 660: '201 m', 1320: '402 m' } : { 60: '60 ' + t('pi'), 330: '330 ' + t('pi'), 660: '1/8 mi', 1320: '1/4 mi' })[D]; }
+// l'etiquette courte d'une colonne : « 1/8 », « 1/4 » en pieds ; la distance en metres sinon
+function court(D) { return (D >= 660 && U.dist !== 'm') ? (D === 660 ? '1/8' : '1/4') : lab(D); }
+
+// ===================================================================
+// [reglages] taille du texte, theme, langue (demande du pilote, 30 sept. 2026)
+// ===================================================================
+var R = lsLire(LS + 'reglages', { taille: 'normal', theme: 'auto', langue: 'fr' });
+var TAILLES = { petit: 0.9, normal: 1, grand: 1.15, tgrand: 1.3 };
+// ⚠ Le journal de diagnostic reste en francais : il sert au diagnostic, pas au public.
+var TXT = {
+  fr: {
+    titre: 'Tableau DRAGLOGICS', evtAria: 'Nom de l’événement', demo: 'DÉMO', bandeau: 'E3B4 déconnectée — les runs ne rentrent pas. Toucher pour connecter.',
+    classeAria: 'Classe', toutesClasses: 'Toutes les classes', toutesClassesMin: 'toutes les classes', classement: 'Classement',
+    thPilote: 'Pilote', thEcart: 'Écart', thRuns: 'Runs', thHeure: 'Heure', thVoiture: 'Voiture (module)', thNo: 'N°', thClasse: 'Classe',
+    recents: 'Passages récents', demoTitre: 'Démo', demoAide: 'La maquette ajoute un passage de démonstration toutes les 20 s, comme si la E3B4 en recevait un.',
+    demoAjout: '+ un passage maintenant', demoAuto: 'automatique',
+    tousPassages: 'Tous les passages', tousPilotes: 'Tous les pilotes', tous: 'Tous', termines: 'Terminés', abandons: 'Abandons',
+    inscriptions: 'Inscriptions', inscrAide: 'Chaque voiture reçoit son numéro de course, un pilote et une classe. Ils s’appliquent à tous ses runs. Pour un run conduit par quelqu’un d’autre, change le pilote dans Passages : ce choix ne touche que ce run.',
+    classesTitre: 'Classes de compétition', nouvelleClasse: 'Nouvelle classe (ex. Street, Modifiée)', ajouter: 'Ajouter',
+    classeAide: 'Une classe vidée de son nom est retirée ; ses voitures passent en « Sans classe ».', sansClasse: 'Sans classe',
+    affichage: 'Affichage', taille: 'Taille du texte', tPetit: 'Petit', tNormal: 'Normal', tGrand: 'Grand', tTresGrand: 'Très grand',
+    theme: 'Thème', thAuto: 'Automatique', thClair: 'Clair', thSombre: 'Sombre', langue: 'Langue',
+    themeAide: 'Automatique suit le réglage clair ou sombre de la tablette.',
+    unites: 'Unités', temperature: 'Température', vitesse: 'Vitesse', distance: 'Distance', pieds: 'Pieds', metres: 'Mètres', pi: 'pi',
+    unitesAide: 'Les runs restent enregistrés tels que le kit les envoie (km/h, pieds). Le choix ne change que l’affichage et les exports.',
+    meteo: 'Météo', meteoAide: 'Quand Internet est disponible, la page note la météo au lieu de la course dans chaque run (température, humidité, pression, vent). Elle ne l’affiche pas : elle part dans les exports.',
+    meteoEtat: '{a} run(s) avec la météo, {b} sans', pasReseau: ' (pas de réseau)', lieuTablette: '. Lieu : position de la tablette.', lieuInconnu: '. Lieu : pas encore connu.',
+    exporter: 'Exporter', xTout: 'Tout exporter', xToutAide: 'Les fichiers ci-dessous, un par un. La sauvegarde part en premier.', btnTout: 'Tout',
+    xJson: 'Sauvegarde complète (JSON)', xJsonAide: 'Runs bruts, inscriptions, classes, journal : tout pour reconstruire la page.',
+    xJournal: 'Journal de diagnostic (CSV)', xJournalAide: 'Ce que la page a vu : connexions, runs reçus, changements, exports, erreurs.',
+    xRes: 'Résultats (CSV)', xResAide: 'Un run par ligne : heure, pilote, classe, partiels, vitesses, statut.',
+    xBruts: 'Runs bruts (TXT)', xBrutsAide: 'Le texte de chaque run, tel qu’il est sur la carte SD.',
+    xSd: 'Journal de la E3B4 (carte SD)', xSdAide: 'Chaque trame radio reçue et émise. La E3B4 ferme son journal, en ouvre un neuf et envoie l’ancien. Un gros journal prend plusieurs minutes.',
+    e3b4PasSd: 'E3B4 · ⚠ PAS DE CARTE SD — aucun run confirmé', e3b4Recoit: 'E3B4 · reçoit {u} run {s} : {a}/{b}', aLire: '{n} à lire',
+    lieuE3B4: '. Lieu : GPS de la E3B4.', sdPasConnecte: 'Connecte d’abord la E3B4.', sdEnCours: 'Journal de la E3B4 : {a} ko sur {b} ko…', sdFini: 'Journal de la E3B4 reçu : {a} ko.',
+    pasBluetooth: 'Ce navigateur n’a pas le Bluetooth web. Ouvre la page dans Chrome sur la tablette Android.', e3b4Titre: 'E3B4', relireCarte: 'Relire la carte SD', retourConfig: 'Page de configuration', e3b4Aide: 'La page lit seule les runs de la carte SD à chaque connexion et à chaque run neuf. « Relire » force une vérification. « Page de configuration » ferme le tableau ; il revient à la prochaine connexion de la E3B4.',
+    journalDiag: 'Journal de diagnostic', bilanExport: 'Export : {a} fichier(s) sur {b}.',
+    bConnecter: 'Connecter', bConnexion: 'Connexion…', bConnecte: 'Connecté', bTableau: 'Tableau', bPassages: 'Passages', bInscr: 'Inscriptions', bReglages: 'Réglages', bExporter: 'Exporter',
+    e3b4On: 'E3B4 · SD ok · {n} runs sur la carte', e3b4Cx: 'E3B4 · connexion…', e3b4Off: 'E3B4 · non connectée',
+    dernier: 'Dernier passage', attente: 'En attente du premier run…', vsMeilleur: 'vs meilleur', meilleurPerso: 'Meilleur perso',
+    ABANDON: 'Abandon', TERMINE: 'Terminé', abandonMin: 'abandon', aucunRunClasse: 'Aucun run dans cette classe', aucunRun: 'Aucun run', run: 'Run',
+    pasEch: 'Pas d’échantillons dans ce run.', tempsAxe: 'temps (s) →', prec: '◀ Précédent', suiv: 'Suivant ▶', no: 'N° ',
+    piloteRun: 'Pilote de ce run : ', inscrit: ' (inscrit)', autreNom: 'Autre nom…', promptNom: 'Nom du pilote pour ce run :',
+    details: 'Détails : le texte brut, tel qu’il est sur la carte SD', numAria: 'Numéro de course', voitures: ' voiture(s)'
+  },
+  en: {
+    titre: 'DRAGLOGICS board', evtAria: 'Event name', demo: 'DEMO', bandeau: 'E3B4 disconnected — runs are not coming in. Tap to connect.',
+    classeAria: 'Class', toutesClasses: 'All classes', toutesClassesMin: 'all classes', classement: 'Leaderboard',
+    thPilote: 'Driver', thEcart: 'Gap', thRuns: 'Runs', thHeure: 'Time', thVoiture: 'Car (module)', thNo: 'No.', thClasse: 'Class',
+    recents: 'Recent passes', demoTitre: 'Demo', demoAide: 'The mock-up adds a demo pass every 20 s, as if the E3B4 received one.',
+    demoAjout: '+ one pass now', demoAuto: 'automatic',
+    tousPassages: 'All passes', tousPilotes: 'All drivers', tous: 'All', termines: 'Completed', abandons: 'Aborted',
+    inscriptions: 'Entries', inscrAide: 'Each car gets its race number, a driver and a class. They apply to all its runs. For a run driven by someone else, change the driver in Passes: that choice only affects that run.',
+    classesTitre: 'Competition classes', nouvelleClasse: 'New class (e.g. Street, Modified)', ajouter: 'Add',
+    classeAide: 'A class with an empty name is removed; its cars go to “No class”.', sansClasse: 'No class',
+    affichage: 'Display', taille: 'Text size', tPetit: 'Small', tNormal: 'Normal', tGrand: 'Large', tTresGrand: 'Extra large',
+    theme: 'Theme', thAuto: 'Automatic', thClair: 'Light', thSombre: 'Dark', langue: 'Language',
+    themeAide: 'Automatic follows the light or dark setting of the tablet.',
+    unites: 'Units', temperature: 'Temperature', vitesse: 'Speed', distance: 'Distance', pieds: 'Feet', metres: 'Meters', pi: 'ft',
+    unitesAide: 'Runs stay stored as the kit sends them (km/h, feet). This choice only changes the display and the exports.',
+    meteo: 'Weather', meteoAide: 'When Internet is available, the page records the weather at the track in each run (temperature, humidity, pressure, wind). It does not show it: it goes into the exports.',
+    meteoEtat: '{a} run(s) with weather, {b} without', pasReseau: ' (no network)', lieuTablette: '. Location: tablet position.', lieuInconnu: '. Location: not known yet.',
+    exporter: 'Export', xTout: 'Export all', xToutAide: 'The files below, one by one. The backup goes first.', btnTout: 'All',
+    xJson: 'Full backup (JSON)', xJsonAide: 'Raw runs, entries, classes, log: everything to rebuild the page.',
+    xJournal: 'Diagnostic log (CSV)', xJournalAide: 'What the page saw: connections, runs received, changes, exports, errors.',
+    xRes: 'Results (CSV)', xResAide: 'One run per line: time, driver, class, splits, speeds, status.',
+    xBruts: 'Raw runs (TXT)', xBrutsAide: 'The text of each run, as it is on the SD card.',
+    xSd: 'E3B4 log (SD card)', xSdAide: 'Every radio frame received and sent. The E3B4 closes its log, opens a new one and sends the old one. A large log takes several minutes.',
+    e3b4PasSd: 'E3B4 · ⚠ NO SD CARD — no run confirmed', e3b4Recoit: 'E3B4 · receiving {u} run {s}: {a}/{b}', aLire: '{n} to read',
+    lieuE3B4: '. Location: E3B4 GPS.', sdPasConnecte: 'Connect the E3B4 first.', sdEnCours: 'E3B4 log: {a} kB of {b} kB…', sdFini: 'E3B4 log received: {a} kB.',
+    pasBluetooth: 'This browser has no Web Bluetooth. Open the page in Chrome on the Android tablet.', e3b4Titre: 'E3B4', relireCarte: 'Read the SD card again', retourConfig: 'Configuration page', e3b4Aide: 'The page reads the runs from the SD card by itself at each connection and at each new run. “Read again” forces a check. “Configuration page” closes the board; it comes back at the next E3B4 connection.',
+    journalDiag: 'Diagnostic log', bilanExport: 'Export: {a} file(s) of {b}.',
+    bConnecter: 'Connect', bConnexion: 'Connecting…', bConnecte: 'Connected', bTableau: 'Board', bPassages: 'Passes', bInscr: 'Entries', bReglages: 'Settings', bExporter: 'Export',
+    e3b4On: 'E3B4 · SD ok · {n} runs on the card', e3b4Cx: 'E3B4 · connecting…', e3b4Off: 'E3B4 · not connected',
+    dernier: 'Last pass', attente: 'Waiting for the first run…', vsMeilleur: 'vs best', meilleurPerso: 'Personal best',
+    ABANDON: 'Aborted', TERMINE: 'Completed', abandonMin: 'aborted', aucunRunClasse: 'No run in this class', aucunRun: 'No run', run: 'Run',
+    pasEch: 'No samples in this run.', tempsAxe: 'time (s) →', prec: '◀ Previous', suiv: 'Next ▶', no: 'No. ',
+    piloteRun: 'Driver of this run: ', inscrit: ' (entered)', autreNom: 'Other name…', promptNom: 'Driver name for this run:',
+    details: 'Details: the raw text, as it is on the SD card', numAria: 'Race number', voitures: ' car(s)'
+  }
+};
+// ⚠ une cle absente se voit : elle s'affiche telle quelle (jamais un vide muet)
+function t(k, v) {
+  var s = (TXT[R.langue] || TXT.fr)[k]; if (s == null) s = TXT.fr[k]; if (s == null) s = k;
+  if (v) Object.keys(v).forEach(function (x) { s = s.replace('{' + x + '}', v[x]); });
+  return s;
+}
+function statutTxt(s) { return TXT.fr[s] ? t(s) : s; }
+function appliquerReglages() {
+  var h = document.documentElement;
+  if (R.theme === 'auto') h.removeAttribute('data-theme'); else h.setAttribute('data-theme', R.theme);
+  h.lang = R.langue === 'en' ? 'en' : 'fr-CA';
+  document.title = t('titre');
+  var z = TAILLES[R.taille] || 1;
+  // le contenu grossit ; l'en-tete et la barre du bas gardent leur taille (ils doivent toujours tenir)
+  ['main', '#outils'].forEach(function (q) { var e = document.querySelector(q); if (e) e.style.zoom = z === 1 ? '' : String(z); });
+  document.querySelectorAll('[data-i18n]').forEach(function (e) { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function (e) { e.placeholder = t(e.dataset.i18nPh); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(function (e) { e.setAttribute('aria-label', t(e.dataset.i18nAria)); });
+  document.querySelectorAll('#v-reglages .seg[data-r]').forEach(function (s) {
+    s.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', R[s.dataset.r] === b.dataset.v); });
+  });
+}
+function tC(c) { return c == null ? '' : (U.temp === 'F' ? c * 9 / 5 + 32 : c).toFixed(1); }
+function ecartTxt(ms) { return (ms > 0 ? '+' : '') + (ms / 1000).toFixed(3); }
+function meilleurDe(pil, cle, sauf) {
+  var b = null;
+  runs.forEach(function (r) { if (r === sauf || piloteDe(r) !== pil || !r[cle]) return; if (b == null || r[cle] < b) b = r[cle]; });
+  return b;
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+// ===================================================================
+// RENDU
+// ===================================================================
+function rendreDernier(anim) {
+  var el = document.getElementById('carteDernier');
+  if (!runs.length) { el.innerHTML = '<h2>' + t('dernier') + '</h2><div class="vide">' + t('attente') + '</div>'; return; }
+  var r = recents(1)[0], pil = piloteDe(r), cle = 't' + dist;
+  var avant = meilleurDe(pil, cle, r), pb = r[cle] && (avant == null || r[cle] < avant);
+  var tuiles = [[lab(60), 't60', null], [lab(330), 't330', 'v330'], [lab(660), 't660', 'v660'], [lab(1320), 't1320', 'v1320']].map(function (x) {
+    var b = meilleurDe(pil, x[1], r), e = (r[x[1]] && b != null) ? r[x[1]] - b : null;
+    return '<div class="tuile"><div class="lab">' + x[0] + '</div><div class="val num">' + s3(r[x[1]]) + '</div>'
+      + (x[2] ? '<div class="vit num">' + k1(r[x[2]]) + ' ' + uV() + '</div>' : '<div class="vit">&nbsp;</div>')
+      + '<div class="ecart num ' + (e == null ? '' : e > 0 ? 'plus' : 'moins') + '">' + (e == null ? '&nbsp;' : ecartTxt(e) + ' ' + t('vsMeilleur')) + '</div></div>';
+  }).join('');
+  el.innerHTML = '<h2>' + t('dernier') + ' · ' + r.heure + '</h2>'
+    + '<div class="qui"><span class="pilote">' + plaque(r.unit) + esc(pil) + '</span><span class="voiture">' + esc(voitureDe(r.unit)) + ' · run #' + r.seq + '</span>'
+    + '<span class="badge cl">' + esc(classeDe(r)) + '</span>'
+    + (pb ? '<span class="badge pb">' + t('meilleurPerso') + '</span>' : '') + (r.statut !== 'TERMINE' ? '<span class="badge att">' + esc(statutTxt(r.statut)) + '</span>' : '') + '</div>'
+    + '<div class="et num">' + s3(r[cle]) + '<small>' + lab(dist) + ' · ' + k1(vD(r, dist)) + ' ' + uV() + '</small></div>'
+    + '<div class="partiels">' + tuiles + '</div>';
+  if (anim) { el.classList.remove('arrive'); void el.offsetWidth; el.classList.add('arrive'); }
+}
+// [v4] classement au 1/4 (dist = 1320, fixe). Une ligne = la fiche du MEILLEUR run du pilote : son 60 pi,
+// son 1/8 et ses deux vitesses viennent de CE run (pas des meilleurs partiels pris dans des runs differents).
+function rendreClassement() {
+  var cle = 't' + dist, fc = document.getElementById('fClasse').value, par = {};
+  runs.forEach(function (r) {
+    if (fc && classeDe(r) !== fc) return;
+    var p = piloteDe(r); par[p] = par[p] || { pil: p, unit: r.unit, cl: classeDe(r), n: 0, best: null, run: null };
+    var e = par[p]; e.n++;
+    if (r[cle] && (e.best == null || r[cle] < e.best)) { e.best = r[cle]; e.run = r; }
+  });
+  var L = Object.keys(par).map(function (k) { return par[k]; }).sort(function (a, b) { return (a.best || 1e9) - (b.best || 1e9); });
+  var tete = L.length && L[0].best;
+  document.getElementById('titreClassement').textContent = t('classement') + ' · ' + (fc || t('toutesClassesMin')) + ' · ' + lab(dist);
+  document.getElementById('classement').innerHTML = L.length ? L.map(function (e, i) {
+    var r = e.run || {};
+    return '<tr class="clic" data-id="' + (e.run ? e.run.id : '') + '"><td class="rang">' + (e.best ? i + 1 : '—') + '</td><td>' + plaque(e.unit) + '<b>' + esc(e.pil) + '</b><br><span class="aide">' + esc(voitureDe(e.unit)) + (fc ? '' : ' · ' + esc(e.cl)) + '</span></td>'
+      + '<td class="n num"><b>' + s3(e.best) + '</b></td><td class="n num">' + k1(r.v1320) + '</td><td class="n num">' + s3(r.t660) + '</td><td class="n num">' + k1(r.v660) + '</td><td class="n num">' + s3(r.t60) + '</td>'
+      + '<td class="n num">' + (e.best && tete && e.best !== tete ? '+' + ((e.best - tete) / 1000).toFixed(3) : '') + '</td><td class="n num">' + e.n + '</td></tr>';
+  }).join('') : '<tr><td colspan="9" class="vide">' + t('aucunRunClasse') + '</td></tr>';
+}
+function rendreRecents() {
+  var L = recents(6);
+  document.getElementById('recents').innerHTML = L.length ? L.map(function (r) {
+    return '<div class="ligne" data-id="' + r.id + '"><span class="h num">' + r.heure.slice(0, 5) + '</span><span class="p">' + plaque(r.unit) + esc(piloteDe(r)) + (r.statut !== 'TERMINE' ? ' <span class="badge att">' + t('abandonMin') + '</span>' : '') + '</span><span class="t num">' + s3(r['t' + dist]) + '</span><span class="aide num">' + court(660) + ' ' + k1(r.v660) + ' · ' + court(1320) + ' ' + k1(r.v1320) + ' ' + uV() + '</span></div>';
+  }).join('') : '<div class="vide">—</div>';
+}
+function listeFiltree() {
+  var fp = document.getElementById('fPilote').value, fs = document.getElementById('fStatut').value, fc = document.getElementById('fClasse').value;
+  return runs.filter(function (r) { return (!fp || piloteDe(r) === fp) && (!fs || r.statut === fs) && (!fc || classeDe(r) === fc); }).slice().reverse();
+}
+function rendreListe() {
+  var sel = document.getElementById('fPilote'), garde = sel.value, noms = {};
+  runs.forEach(function (r) { noms[piloteDe(r)] = 1; });
+  sel.innerHTML = '<option value="">' + t('tousPilotes') + '</option>' + Object.keys(noms).sort().map(function (n) { return '<option' + (n === garde ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+  var L = listeFiltree();
+  document.getElementById('liste').innerHTML = L.length ? L.map(function (r) {
+    return '<tr class="clic' + (r.id === choisi ? ' choisi' : '') + '" data-id="' + r.id + '"><td class="num">' + r.heure + '</td><td>' + plaque(r.unit) + esc(piloteDe(r)) + (r.statut !== 'TERMINE' ? ' <span class="badge att">' + t('abandonMin') + '</span>' : '') + '</td>'
+      + '<td class="n num">' + s3(r.t60) + '</td><td class="n num">' + s3(r.t330) + '</td><td class="n num">' + s3(r.t660) + '</td><td class="n num">' + k1(r.v660) + '</td><td class="n num"><b>' + s3(r.t1320) + '</b></td><td class="n num">' + k1(r.v1320) + '</td></tr>';
+  }).join('') : '<tr><td colspan="8" class="vide">' + t('aucunRun') + '</td></tr>';
+}
+function courbe(r) {
+  // l'axe du temps est celui des lignes R (depuis le declenchement) ; un jalon s'y place a T0 + t
+  var t0 = r.t0 || 0, fin = r.t1320 ? t0 + r.t1320 + 1500 : Infinity;
+  var fk = U.vit === 'mph' ? 0.621371 : 1;
+  var e = r.ech.filter(function (x) { return x.t >= 0 && x.t <= fin; }).map(function (x) { return { t: x.t, v: x.v * fk, d: x.d }; }); if (e.length < 2) return '<p class="aide">' + t('pasEch') + '</p>';
+  var W = 600, H = 190, g = 34, tmax = e[e.length - 1].t, vmax = 0; e.forEach(function (x) { if (x.v > vmax) vmax = x.v; });
+  vmax = Math.ceil(vmax / 20) * 20 || 20;
+  var X = function (t) { return g + (W - g - 8) * t / tmax; }, Y = function (v) { return H - 18 - (H - 28) * v / vmax; };
+  var p = e.map(function (x, i) { return (i ? 'L' : 'M') + X(x.t).toFixed(1) + ' ' + Y(x.v).toFixed(1); }).join(' '), grille = '';
+  for (var v = 0; v <= vmax; v += 40) grille += '<line x1="' + g + '" x2="' + (W - 8) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="var(--line)"/><text x="2" y="' + (Y(v) + 3) + '">' + v + '</text>';
+  var jal = [[60, r.t60], [330, r.t330], [660, r.t660], [1320, r.t1320]].filter(function (x) { return x[1]; }).map(function (x) {
+    var xp = X(t0 + x[1]);
+    return '<line x1="' + xp + '" x2="' + xp + '" y1="8" y2="' + (H - 18) + '" stroke="var(--sel)" stroke-dasharray="3 3"/><text x="' + (xp + 3) + '" y="16">' + lab(x[0]) + '</text>';
+  }).join('');
+  return '<svg class="courbe" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + grille + jal + '<path d="' + p + '" fill="none" stroke="var(--ink)" stroke-width="2"/>'
+    + '<text x="' + (W - 60) + '" y="' + (H - 4) + '">' + t('tempsAxe') + '</text><text x="' + g + '" y="' + (H - 4) + '">' + uV() + '</text></svg>';
+}
+function rendreDetail() {
+  var el = document.getElementById('detail'), L = listeFiltree();
+  var i = L.findIndex(function (r) { return r.id === choisi; });
+  if (i < 0) { if (!L.length) { el.innerHTML = '<h2>' + t('run') + '</h2><div class="vide">' + t('aucunRun') + '</div>'; return; } choisi = L[0].id; i = 0; }
+  var r = L[i], defaut = (inscr[r.unit] && inscr[r.unit].pilote) || r.unit, noms = {};
+  Object.keys(inscr).forEach(function (u) { if (inscr[u].pilote) noms[inscr[u].pilote] = 1; }); runs.forEach(function (x) { noms[piloteDe(x)] = 1; });
+  el.innerHTML = '<div class="nav-run"><button class="bouton" id="prec"' + (i >= L.length - 1 ? ' disabled' : '') + '>' + t('prec') + '</button><span class="pos num">' + (L.length - i) + ' / ' + L.length + '</span><button class="bouton" id="suiv"' + (i <= 0 ? ' disabled' : '') + '>' + t('suiv') + '</button></div>'
+    + '<h2>' + (numDe(r.unit) ? t('no') + esc(numDe(r.unit)) + ' · ' : '') + esc(piloteDe(r)) + ' · ' + esc(voitureDe(r.unit)) + ' · ' + esc(classeDe(r)) + ' · run #' + r.seq + ' · ' + r.heure + (r.statut !== 'TERMINE' ? ' · ' + esc(statutTxt(r.statut)) : '') + '</h2>'
+    + '<div class="partiels">' + [[lab(60), r.t60, 0], [lab(330), r.t330, r.v330], [lab(660), r.t660, r.v660], [lab(1320), r.t1320, r.v1320]].map(function (x) {
+        return '<div class="tuile"><div class="lab">' + x[0] + '</div><div class="val num">' + s3(x[1]) + '</div><div class="vit num">' + (x[2] ? k1(x[2]) + ' ' + uV() : '&nbsp;') + '</div></div>'; }).join('') + '</div>'
+    + '<div style="margin-top:12px">' + courbe(r) + '</div>'
+    + '<p style="margin:10px 0 0">' + t('piloteRun') + '<select id="pilRun"><option value="">' + esc(defaut) + t('inscrit') + '</option>'
+    + Object.keys(noms).sort().filter(function (n) { return n !== defaut; }).map(function (n) { return '<option' + (parRun[r.id] === n ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('')
+    + '</select> <button class="bouton" id="autreNom">' + t('autreNom') + '</button></p>'
+    + '<details><summary>' + t('details') + '</summary><pre>' + esc(r.texte.split('\n').slice(0, 6).join('\n') + '\n…\n' + r.texte.split('\n').filter(function (l) { return l.indexOf('[dump] J') === 0 || l.indexOf('FIN') > 0; }).join('\n')) + '</pre></details>';
+  document.getElementById('prec').onclick = function () { choisi = L[i + 1].id; rendreListe(); rendreDetail(); };
+  document.getElementById('suiv').onclick = function () { choisi = L[i - 1].id; rendreListe(); rendreDetail(); };
+  document.getElementById('pilRun').onchange = function () {
+    if (this.value) parRun[r.id] = this.value; else delete parRun[r.id];
+    lsEcrire(LS + 'parRun', parRun); jrn('inscription', 'run ' + r.id + ' : pilote ' + (this.value || defaut + ' (inscrit)')); toutRendre();
+  };
+  document.getElementById('autreNom').onclick = function () {
+    var n = prompt(t('promptNom'));
+    if (n && n.trim()) { parRun[r.id] = n.trim(); lsEcrire(LS + 'parRun', parRun); jrn('inscription', 'run ' + r.id + ' : pilote ' + n.trim()); toutRendre(); }
+  };
+}
+function optionsClasses(choix) {
+  return classes.map(function (c) { return '<option' + (c === choix ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '<option value=""' + (!choix ? ' selected' : '') + '>' + t('sansClasse') + '</option>';
+}
+function rendreInscriptions() {
+  var units = {}; runs.forEach(function (r) { units[r.unit] = (units[r.unit] || 0) + 1; }); Object.keys(inscr).forEach(function (u) { units[u] = units[u] || 0; });
+  document.getElementById('tInscr').innerHTML = Object.keys(units).sort().map(function (u) {
+    var e = inscr[u] || {};
+    return '<tr><td>' + esc(u) + '<br><span class="aide">' + esc(voitureDe(u)) + '</span></td>'
+      + '<td><input type="text" class="num-course" data-u="' + esc(u) + '" data-champ="num" value="' + esc(e.num || '') + '" placeholder="—" maxlength="4" inputmode="numeric" aria-label="' + esc(t('numAria')) + '"></td>'
+      + '<td><input type="text" data-u="' + esc(u) + '" data-champ="pilote" value="' + esc(e.pilote || '') + '" placeholder="' + esc(u) + '"></td>'
+      + '<td><select data-u="' + esc(u) + '">' + optionsClasses(e.classe) + '</select></td><td class="n num">' + units[u] + '</td></tr>';
+  }).join('');
+  document.querySelectorAll('#tInscr input').forEach(function (inp) {
+    inp.onchange = function () {
+      var u = this.dataset.u, champ = this.dataset.champ, v = this.value.trim();
+      // ⚠ deux voitures avec le meme numero : on le dit, sans bloquer (la piste peut en avoir attribue deux)
+      if (champ === 'num' && v && Object.keys(inscr).some(function (x) { return x !== u && inscr[x].num === v; })) jrn('erreur', 'numéro ' + v + ' déjà donné à une autre voiture');
+      inscr[u] = inscr[u] || {}; inscr[u][champ] = v; lsEcrire(LS + 'inscr', inscr);
+      jrn('inscription', u + ' : ' + (champ === 'num' ? 'numéro « ' + (v || 'aucun') + ' »' : 'pilote « ' + (v || u) + ' »')); toutRendre();
+    };
+  });
+  document.querySelectorAll('#tInscr select').forEach(function (s) {
+    s.onchange = function () { var u = this.dataset.u; inscr[u] = inscr[u] || {}; inscr[u].classe = this.value; lsEcrire(LS + 'inscr', inscr); jrn('inscription', u + ' : classe « ' + (this.value || 'Sans classe') + ' »'); toutRendre(); };
+  });
+  document.getElementById('listeClasses').innerHTML = classes.map(function (c, i) {
+    return '<div class="ligne"><input type="text" data-i="' + i + '" value="' + esc(c) + '"><span class="aide num">' + Object.keys(inscr).filter(function (u) { return inscr[u].classe === c; }).length + t('voitures') + '</span></div>';
+  }).join('');
+  document.querySelectorAll('#listeClasses input').forEach(function (inp) {
+    inp.onchange = function () {
+      var i = +this.dataset.i, ancien = classes[i], v = this.value.trim();
+      Object.keys(inscr).forEach(function (u) { if (inscr[u].classe === ancien) inscr[u].classe = v; });
+      if (v) classes[i] = v; else classes.splice(i, 1);
+      lsEcrire(LS + 'classes', classes); lsEcrire(LS + 'inscr', inscr); jrn('classe', v ? 'classe « ' + ancien + ' » renommée « ' + v + ' »' : 'classe « ' + ancien + ' » retirée'); toutRendre();
+    };
+  });
+}
+function rendreFiltreClasse() {
+  var s = document.getElementById('fClasse'), garde = s.value;
+  s.innerHTML = '<option value="">' + t('toutesClasses') + '</option>' + classes.map(function (c) { return '<option' + (c === garde ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('');
+}
+function rendreJournal() {
+  var el = document.getElementById('journal');
+  el.innerHTML = journal.slice().reverse().map(function (j) {
+    return '<div' + (j.type === 'erreur' ? ' class="j-att"' : '') + '>' + j.t.slice(11, 19) + ' · ' + esc(j.type) + ' · ' + esc(j.msg) + '</div>';
+  }).join('') || '<div class="aide">Vide</div>';
+}
+// ===================================================================
+// LA METEO -- consignee dans chaque run, JAMAIS affichee (demande du pilote, 30 sept. 2026).
+// Open-Meteo (sans cle), a l'heure du run, au lieu donne par la position de la tablette.
+// ⚠ L'heure du run est l'heure LOCALE du kit (reglage tzh du kit) : si ce reglage est faux,
+// la meteo est prise a la mauvaise heure. Sans reseau, le run attend et la page reessaie au retour
+// du reseau. Aucune meteo inventee : un echec est note au journal, le run reste sans meteo.
+// ===================================================================
+var lieu = lsLire(LS + 'lieu', null), meteoCache = {};
+function obtenirLieu(cb) {
+  if (lieu && Date.now() - lieu.ms < 6 * 3600e3) return cb(lieu);
+  if (!navigator.geolocation) { jrn('erreur', 'météo : pas de géolocalisation sur cet appareil'); return cb(null); }
+  navigator.geolocation.getCurrentPosition(function (p) {
+    lieu = { lat: +p.coords.latitude.toFixed(4), lon: +p.coords.longitude.toFixed(4), source: 'tablette', ms: Date.now() };
+    lsEcrire(LS + 'lieu', lieu); jrn('meteo', 'lieu de la météo : position de la tablette'); cb(lieu);
+  }, function (e) { jrn('erreur', 'météo : position refusée ou indisponible (' + e.message + ')'); cb(null); }, { timeout: 10000, maximumAge: 3600e3 });
+}
+function dateLocale(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function meteoPour(r) {
+  if (r.meteo || r.meteoEnCours) return;
+  if (!navigator.onLine) { r.meteoAttente = true; majEtatMeteo(); return; }
+  r.meteoEnCours = true;
+  obtenirLieu(function (L) {
+    if (!L) { r.meteoEnCours = false; r.meteoAttente = true; majEtatMeteo(); return; }
+    var jour = dateLocale(new Date(r.recuMs)), cle = L.lat + ',' + L.lon + ',' + jour;
+    var p = meteoCache[cle] || (meteoCache[cle] = fetch('https://api.open-meteo.com/v1/forecast?latitude=' + L.lat + '&longitude=' + L.lon
+      + '&hourly=temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m&past_days=1&forecast_days=1&timezone=auto')
+      .then(function (x) { if (!x.ok) throw new Error('HTTP ' + x.status); return x.json(); }));
+    p.then(function (j) {
+      var h = j.hourly, cible = jour + 'T' + r.heure.slice(0, 2) + ':00', i = h.time.indexOf(cible);
+      if (i < 0) throw new Error('heure ' + cible + ' absente de la réponse');
+      var f = (+r.heure.slice(3, 5) * 60 + +r.heure.slice(6, 8)) / 3600, k = Math.min(i + 1, h.time.length - 1);
+      var val = function (a) { return a[i] + (a[k] - a[i]) * f; };
+      var tc = val(h.temperature_2m), hpa = val(h.surface_pressure);
+      // altitude-densite approchee (air sec) : l'indicateur de la piste de drag
+      var pa = (1 - Math.pow(hpa / 1013.25, 0.190284)) * 145366.45, da = pa + 118.8 * (tc - (15 - 1.98 * pa / 1000));
+      r.meteo = { t_c: +tc.toFixed(1), hr_pct: Math.round(val(h.relative_humidity_2m)), p_hpa: +hpa.toFixed(1), vent_kmh: +val(h.wind_speed_10m).toFixed(1),
+                  vent_dir: Math.round(h.wind_direction_10m[i]), da_pi: Math.round(da), heure: cible, lat: L.lat, lon: L.lon, source: 'open-meteo', lue: new Date().toISOString() };
+      r.meteoEnCours = false; r.meteoAttente = false; jrn('meteo', 'run ' + r.id + ' : météo consignée (' + cible + ', lieu : ' + (L.source || '?') + ')'); majEtatMeteo();
+      if (!DEMO) sauverRun(r);   // [v111] la meteo reste avec le run dans la tablette
+    }).catch(function (e) { delete meteoCache[cle]; r.meteoEnCours = false; r.meteoAttente = true; jrn('erreur', 'météo non obtenue pour ' + r.id + ' : ' + e.message); majEtatMeteo(); });
+  });
+}
+window.addEventListener('online', function () { jrn('meteo', 'réseau revenu : météo des runs en attente'); runs.forEach(function (r) { if (r.meteoAttente) { r.meteoAttente = false; meteoPour(r); } }); });
+function majEtatMeteo() {
+  var avec = runs.filter(function (r) { return r.meteo; }).length, att = runs.filter(function (r) { return !r.meteo; }).length;
+  var el = document.getElementById('etatMeteo');
+  if (el) el.textContent = t('meteoEtat', { a: avec, b: att }) + (navigator.onLine ? '' : t('pasReseau')) + (lieu ? (lieu.source === 'E3B4' ? t('lieuE3B4') : t('lieuTablette')) : t('lieuInconnu'));
+}
+function rendreUnites() {
+  document.querySelectorAll('#v-reglages .seg[data-u]').forEach(function (s) {
+    s.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', U[s.dataset.u] === b.dataset.v); });
+  });
+  document.querySelectorAll('[data-lab]').forEach(function (e) { var D = +e.dataset.lab; e.textContent = e.tagName === 'TH' ? court(D) : lab(D); });
+  // « V 1/8 (km/h) » : la vitesse a ce jalon, dans l'unite choisie
+  document.querySelectorAll('[data-uvd]').forEach(function (e) { e.textContent = 'V ' + court(+e.dataset.uvd) + ' (' + uV() + ')'; });
+  majEtatMeteo();
+}
+function toutRendre(anim) { appliquerReglages(); rendreUnites(); rendreFiltreClasse(); rendreDernier(anim); rendreClassement(); rendreRecents(); rendreListe(); rendreDetail(); rendreInscriptions(); if (vue === 'exporter') rendreJournal(); majEtat(); }
+function majEtat() {
+  var on = etatCx === 'on', txt;
+  if (!on) txt = etatCx === 'cx' ? t('e3b4Cx') : t('e3b4Off');
+  else if (!DEMO && cfgE3B4 && !cfgE3B4.sd) txt = t('e3b4PasSd');
+  else if (recoit && Date.now() - recoit.ms < 4000) txt = t('e3b4Recoit', { u: nomKit(recoit.board), s: recoit.seq, a: recoit.idx, b: recoit.total });
+  else txt = t('e3b4On', { n: DEMO ? carteSD.length : (cfgE3B4 ? cfgE3B4.runs : '?') }) + (fileLire.length ? ' · ' + t('aLire', { n: fileLire.length }) : '');
+  document.getElementById('etatE3B4').textContent = txt;
+  document.getElementById('pointE3B4').classList.toggle('off', !on);
+  var b = document.getElementById('btnCx');
+  b.classList.toggle('cx-off', etatCx === 'off'); b.classList.toggle('cx-on', on); b.classList.toggle('cx-cx', etatCx === 'cx');
+  document.getElementById('btnCxTxt').textContent = on ? t('bConnecte') : (etatCx === 'cx' ? t('bConnexion') : t('bConnecter'));
+  document.getElementById('bandeau').classList.toggle('vu', etatCx === 'off');
+}
+
+// ===================================================================
+// EXPORT -- lecons de la page TRACLOGICS : la sauvegarde part EN PREMIER,
+// 700 ms entre deux fichiers (les navigateurs brident les rafales), bilan.
+// ===================================================================
+function horodateFichier() { var d = new Date(); return d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2) + '_' + ('0' + d.getHours()).slice(-2) + ('0' + d.getMinutes()).slice(-2); }
+function telecharger(nom, contenu, type) {
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([contenu], { type: type })); a.download = nom;
+  document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  jrn('export', nom + ' (' + Math.round(contenu.length / 1024) + ' ko)');
+}
+function csvCellule(v) { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+var EXPORTS = {
+  json: function () { return ['draglogics_sauvegarde_' + horodateFichier() + '.json', JSON.stringify({ format: 'draglogics-tableau', version: 'maquette-4', date: new Date().toISOString(), evenement: document.getElementById('evt').value, inscriptions: inscr, classes: classes, parRun: parRun, unites: U, reglages: R, lieu: lieu, runs: runs.map(function (r) { return { id: r.id, board: r.board, recuMs: r.recuMs, texte: r.texte, meteo: r.meteo || null }; }), journal: journal }), 'application/json']; },
+  journal: function () { return ['draglogics_journal_' + horodateFichier() + '.csv', 'heure_iso;type;message\n' + journal.map(function (j) { return [j.t, j.type, j.msg].map(csvCellule).join(';'); }).join('\n'), 'text/csv']; },
+  resultats: function () {
+    var uv = U.vit === 'mph' ? 'mph' : 'kmh', ut = U.temp === 'F' ? 'f' : 'c', um = U.dist === 'm';
+    var t = 'heure;numero;pilote;classe;voiture;run;statut;t60_s;t330_s;t660_s;v660_' + uv + ';t1320_s;v1320_' + uv
+      + ';meteo_temp_' + ut + ';meteo_humidite_pct;meteo_pression_hpa;meteo_vent_' + uv + ';meteo_vent_dir_deg;meteo_densite_alt_' + (um ? 'm' : 'pi') + ';meteo_heure\n' + runs.map(function (r) {
+      var m = r.meteo || {};
+      return [r.heure, numDe(r.unit), piloteDe(r), classeDe(r), r.unit, r.seq, r.statut, s3(r.t60), s3(r.t330), s3(r.t660), k1(r.v660), s3(r.t1320), k1(r.v1320),
+              tC(m.t_c), m.hr_pct, m.p_hpa, m.vent_kmh != null ? k1(m.vent_kmh) : '', m.vent_dir, m.da_pi != null ? (um ? Math.round(m.da_pi * 0.3048) : m.da_pi) : '', m.heure || ''].map(csvCellule).join(';');
+    }).join('\n');
+    return ['draglogics_resultats_' + horodateFichier() + '.csv', t, 'text/csv'];
+  },
+  bruts: function () { return ['draglogics_runs_bruts_' + horodateFichier() + '.txt', runs.map(function (r) { return '===== ' + r.id + ' =====\n' + r.texte; }).join('\n\n'), 'text/plain']; }
+};
+function exporter(cles) {
+  var faits = [], i = 0;
+  (function suivant() {
+    if (i >= cles.length) { document.getElementById('bilanExport').textContent = t('bilanExport', { a: faits.length, b: cles.length }); return; }
+    var x = EXPORTS[cles[i++]](); telecharger(x[0], x[1], x[2]); faits.push(x[0]);
+    setTimeout(suivant, 700);
+  })();
+}
+document.querySelectorAll('#v-reglages .seg[data-u]').forEach(function (s) {
+  s.querySelectorAll('button').forEach(function (b) {
+    b.onclick = function () { U[s.dataset.u] = b.dataset.v; lsEcrire(LS + 'unites', U); jrn('unites', s.dataset.u + ' : ' + b.textContent); toutRendre(); };
+  });
+});
+document.querySelectorAll('#v-reglages .seg[data-r]').forEach(function (s) {
+  s.querySelectorAll('button').forEach(function (b) {
+    b.onclick = function () { R[s.dataset.r] = b.dataset.v; lsEcrire(LS + 'reglages', R); jrn('reglages', s.dataset.r + ' : ' + b.dataset.v); toutRendre(); };
+  });
+});
+document.getElementById('xTout').onclick = function () { exporter(['json', 'journal', 'resultats', 'bruts']); };
+document.getElementById('xJson').onclick = function () { exporter(['json']); };
+document.getElementById('xJournal').onclick = function () { exporter(['journal']); };
+document.getElementById('xResultats').onclick = function () { exporter(['resultats']); };
+document.getElementById('xBruts').onclick = function () { exporter(['bruts']); };
+
+// ===================================================================
+// INTERACTIONS
+// ===================================================================
+function montrer(v) {
+  vue = v;
+  document.querySelectorAll('#barbas [data-vue]').forEach(function (b) { b.classList.toggle('actif', b.dataset.vue === v); });
+  ['tableau', 'passages', 'inscriptions', 'reglages', 'exporter'].forEach(function (x) { document.getElementById('v-' + x).hidden = x !== v; });
+  document.getElementById('outils').style.display = (v === 'tableau' || v === 'passages') ? '' : 'none';
+  if (v === 'exporter') rendreJournal();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('#barbas [data-vue]').forEach(function (b) { b.onclick = function () { montrer(b.dataset.vue); }; });
+document.getElementById('fClasse').onchange = function () { choisi = null; toutRendre(); };
+document.addEventListener('click', function (ev) {
+  var t = ev.target.closest('[data-id]'); if (!t || !t.dataset.id) return;
+  if (t.closest('#liste')) { choisi = t.dataset.id; rendreListe(); rendreDetail(); return; }
+  if (t.closest('#classement') || t.closest('#recents')) { choisi = t.dataset.id; montrer('passages'); rendreListe(); rendreDetail(); }
+});
+document.getElementById('fPilote').onchange = function () { choisi = null; rendreListe(); rendreDetail(); };
+document.getElementById('fStatut').onchange = function () { choisi = null; rendreListe(); rendreDetail(); };
+document.getElementById('ajoutClasse').onclick = function () {
+  var inp = document.getElementById('nouvelleClasse'), v = inp.value.trim();
+  if (!v || classes.indexOf(v) >= 0) return;
+  classes.push(v); lsEcrire(LS + 'classes', classes); jrn('classe', 'classe « ' + v + ' » ajoutée'); inp.value = ''; toutRendre();
+};
+var evt = document.getElementById('evt'); evt.value = lsLire(LS + 'evt', 'Essais du 3 octobre'); evt.onchange = function () { lsEcrire(LS + 'evt', evt.value); jrn('page', 'événement : ' + evt.value); };
+// ===================================================================
+// [v111] LA CONNEXION -- par l'adaptateur de la PWA (BLE, voir le haut du script).
+// Protocole de la E3B4 (TBS_dlap TDL.0.02+) :
+//   commandes : `runs` (lignes RUNF;chemin;taille), `lire <chemin>`, `journal` ;
+//   flux DUMP : un fichier arrive entre [BLE_DUMP_BEGIN];quoi;chemin;octets et [BLE_DUMP_END],
+//               [BLE_DUMP_ERR];raison;octets si ca casse ; la liste `runs` n'a pas de BEGIN ;
+//   avis EVENT : RUN;carte;run;octets;chemin (un run ecrit et verifie), RX;carte;run;morceau;total.
+// ⚠ Un echec se dit : taille recue differente de la taille annoncee = run refuse, note au journal.
+// ===================================================================
+var etatCx = 'off';
+var carteSD = [];          // DEMO : les runs que la E3B4 garde sur sa carte, connectee ou non
+var cfgE3B4 = null;        // le dernier JSON de configuration de la E3B4
+var recoit = null;         // l'avis RX le plus recent : { board, seq, idx, total, ms }
+var connus = {};           // chemin sur la carte SD -> deja dans la tablette
+var fileLire = [], lectureEnCours = false, essais = {}, derniereSynchro = 0;
+
+// ---- LA BASE DE LA TABLETTE (IndexedDB) : les runs survivent a un rechargement et a une coupure ----
+var baseP = null;
+function base() {
+  if (baseP) return baseP;
+  baseP = new Promise(function (ok, ko) {
+    var q = indexedDB.open('draglogics_tableau', 1);
+    q.onupgradeneeded = function () { q.result.createObjectStore('runs', { keyPath: 'id' }); };
+    q.onsuccess = function () { ok(q.result); };
+    q.onerror = function () { ko(q.error || new Error('ouverture refusee')); };
+  });
+  return baseP;
+}
+function sauverRun(r) {
+  return base().then(function (db) { return new Promise(function (ok, ko) {
+    var tx = db.transaction('runs', 'readwrite');
+    tx.objectStore('runs').put({ id: r.id, chemin: r.chemin || '', board: r.board, seq: r.seq, texte: r.texte, recuMs: r.recuMs, meteo: r.meteo || null });
+    tx.oncomplete = function () { ok(); }; tx.onerror = function () { ko(tx.error); };
+  }); }).catch(function (e) { jrn('erreur', 'run ' + r.id + ' PAS gardé dans la tablette : ' + (e && e.message)); });
+}
+function chargerBase() {
+  return base().then(function (db) { return new Promise(function (ok, ko) {
+    var q = db.transaction('runs', 'readonly').objectStore('runs').getAll();
+    q.onsuccess = function () { ok(q.result || []); }; q.onerror = function () { ko(q.error); };
+  }); });
+}
+
+// ---- LES ENVOIS PAR BLOCS DE LA E3B4 : une demande a la fois ----
+var dumpEnCours = null, fileCmd = Promise.resolve(), decodeur = new TextDecoder();
+function surDumpBrut(dv) {
+  var b = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength), d = dumpEnCours;
+  if (!d) { jrn('erreur', 'bloc reçu sans demande (' + b.length + ' o) : ignoré'); return; }
+  d.dernierMs = Date.now();
+  // les marqueurs arrivent chacun dans une notification SEULE ; un run commence par « [dump] », jamais par « [BLE_DUMP_ »
+  var s = (b.length < 160 && b[0] === 0x5B) ? decodeur.decode(b) : '';
+  if (s === '[BLE_DUMP_END]') { d.fin(); return; }
+  if (s.indexOf('[BLE_DUMP_BEGIN];') === 0) { var c = s.split(';'); d.quoi = c[1]; d.chemin = c[2]; d.taille = +c[3]; return; }
+  if (s.indexOf('[BLE_DUMP_ERR];') === 0) { d.erreur = 'la E3B4 dit : ' + (s.split(';')[1] || 'erreur'); return; }
+  d.morceaux.push(b.slice()); d.recu += b.length;
+  if (d.progres) d.progres(d.recu, d.taille);
+}
+function demander(cmd, opts) {
+  var p = fileCmd.then(function () { return new Promise(function (ok, ko) {
+    if (!BLE || !BLE.connecte()) { ko(new Error('E3B4 non connectée')); return; }
+    var d = { cmd: cmd, morceaux: [], recu: 0, taille: null, chemin: '', erreur: null, dernierMs: Date.now(), progres: opts && opts.progres };
+    // la E3B4 retient ses envois pendant qu'un kit depose un run : on tolere 25 s de silence, pas plus
+    var garde = setInterval(function () {
+      if (Date.now() - d.dernierMs > 25000) { clearInterval(garde); dumpEnCours = null; ko(new Error('« ' + cmd + ' » : pas de réponse de la E3B4 depuis 25 s')); }
+    }, 1000);
+    d.fin = function () {
+      clearInterval(garde); dumpEnCours = null;
+      if (d.erreur) { ko(new Error(d.erreur)); return; }
+      if (d.taille != null && d.recu !== d.taille) { ko(new Error('« ' + cmd + ' » : reçu ' + d.recu + ' octets sur ' + d.taille + ' annoncés')); return; }
+      var tout = new Uint8Array(d.recu), o = 0;
+      d.morceaux.forEach(function (m) { tout.set(m, o); o += m.length; });
+      ok({ texte: decodeur.decode(tout), chemin: d.chemin, taille: d.recu });
+    };
+    dumpEnCours = d;
+    BLE.commande(cmd).catch(function (e) { clearInterval(garde); dumpEnCours = null; ko(e); });
+  }); });
+  fileCmd = p.catch(function () {});
+  return p;
+}
+
+// ---- LA SYNCHRONISATION : la page va chercher seule ce qui lui manque ----
+function nomKit(board) {
+  for (var i = runs.length - 1; i >= 0; i--) if (runs[i].board === board && runs[i].unit) return runs[i].unit;
+  return board ? board.slice(-4) : '?';
+}
+function poserLieuE3B4(c) {
+  if (!c || !c.fix || !c.lat) return;
+  lieu = { lat: +(+c.lat).toFixed(4), lon: +(+c.lon).toFixed(4), source: 'E3B4', ms: Date.now() };
+  lsEcrire(LS + 'lieu', lieu);
+}
+async function synchroniser(motif) {
+  if (DEMO || !BLE || !BLE.connecte()) return;
+  derniereSynchro = Date.now();
+  try {
+    cfgE3B4 = await BLE.lireConfig();
+    poserLieuE3B4(cfgE3B4);
+    if (!cfgE3B4.sd) jrn('erreur', 'la E3B4 dit : PAS DE CARTE SD — aucun run ne sera confirmé aux kits');
+    var rep = await demander('runs'), n = 0, total = 0;
+    rep.texte.split('\n').forEach(function (l) {
+      var c = l.trim().split(';');
+      if (c[0] !== 'RUNF' || !c[1]) return;
+      total++;
+      if (!connus[c[1]] && fileLire.indexOf(c[1]) < 0 && (essais[c[1]] || 0) < 3) { fileLire.push(c[1]); n++; }
+    });
+    jrn('synchro', (motif || 'synchronisation') + ' : ' + total + ' run(s) sur la carte SD, ' + n + ' à lire (' + (cfgE3B4.fw || '?') + ')');
+    majEtat();
+    lireFile();
+  } catch (e) { jrn('erreur', 'synchronisation : ' + e.message); majEtat(); }
+}
+async function lireFile() {
+  if (lectureEnCours) return;
+  lectureEnCours = true;
+  while (fileLire.length && BLE && BLE.connecte()) {
+    var ch = fileLire[0];
+    try {
+      var rep = await demander('lire ' + ch);
+      var nom = ch.split('/').pop().replace(/\.txt$/i, ''), m = nom.match(/^(.+)_(\d+)(_v\d+)?$/);
+      if (!m) jrn('erreur', 'nom de fichier inattendu : ' + ch + ' (numéro de run pris dans le texte)');
+      var r = ajouterTexte(rep.texte, m ? m[1] : nom, nom, m ? +m[2] : 0, { chemin: ch });
+      connus[ch] = true; fileLire.shift();
+      if (r) { await sauverRun(r); trierRuns(); toutRendre(true); }
+    } catch (e) {
+      essais[ch] = (essais[ch] || 0) + 1;
+      jrn('erreur', 'lecture de ' + ch + ' (essai ' + essais[ch] + '/3) : ' + e.message);
+      fileLire.shift();                          // la prochaine synchronisation le redemandera (3 essais au plus)
+      if (essais[ch] >= 3) jrn('erreur', '!!! ' + ch + ' abandonné après 3 essais : il reste sur la carte SD de la E3B4');
+      break;                                     // on laisse la radio respirer ; la verification periodique reprend
+    }
+  }
+  lectureEnCours = false;
+  majEtat();
+}
+function surAvis(s) {
+  var c = s.split(';');
+  if (c[0] === 'RUN' && c[4]) {
+    recoit = null;
+    if (!connus[c[4]] && fileLire.indexOf(c[4]) < 0) { fileLire.push(c[4]); jrn('run', 'la E3B4 annonce le run ' + c[2] + ' de ' + nomKit(c[1]) + ' (' + c[3] + ' o)'); lireFile(); }
+    if (cfgE3B4) cfgE3B4.runs = (cfgE3B4.runs || 0) + 1;
+    majEtat();
+  } else if (c[0] === 'RX') {
+    recoit = { board: c[1], seq: +c[2], idx: +c[3], total: +c[4], ms: Date.now() };
+    majEtat();
+  } else jrn('erreur', 'avis inconnu de la E3B4 : ' + s);
+}
+function surEtat(e, detail) {
+  if (e === 'connecte') {
+    if (etatCx === 'on') return;                 // la PWA peut prevenir deux fois
+    etatCx = 'on';
+    jrn('connexion', 'connectée : ' + BLE.nom() + (BLE.avecAvis() ? '' : ' — SANS AVIS (firmware ancien ou cache Bluetooth) : la page vérifiera la carte toutes les 30 s'));
+    majEtat(); synchroniser('connexion');
+  } else if (e === 'deconnecte') {
+    if (etatCx === 'off') return;
+    etatCx = 'off'; recoit = null; jrn('connexion', 'déconnectée'); majEtat();
+  } else if (e === 'echec') {
+    etatCx = 'off'; jrn('erreur', 'connexion impossible : ' + detail); majEtat();
+  }
+}
+function connecter() {
+  if (DEMO) return connecterDemo();
+  if (etatCx !== 'off') return;
+  etatCx = 'cx'; majEtat(); jrn('connexion', 'recherche de la E3B4…');
+  if (BLE.disponible && !BLE.disponible()) { etatCx = 'off'; jrn('erreur', 'ce navigateur n’a pas le Bluetooth web : utilise Chrome sur Android'); majEtat(); alert(t('pasBluetooth')); return; }
+  Promise.resolve(BLE.connecter()).then(function () {
+    if (!BLE.connecte() && etatCx === 'cx') { etatCx = 'off'; if (BLE.dernierEchec()) jrn('erreur', 'connexion : ' + BLE.dernierEchec()); majEtat(); }
+  });
+}
+function deconnecter() { if (DEMO) return deconnecterDemo(); BLE.deconnecter(); }
+document.getElementById('btnCx').onclick = function () { if (etatCx === 'on') deconnecter(); else connecter(); };
+document.getElementById('bandeau').onclick = connecter;
+document.getElementById('btnRelire').onclick = function () { if (DEMO) return; if (etatCx !== 'on') { connecter(); return; } essais = {}; synchroniser('à la demande'); };
+document.getElementById('btnRetour').onclick = function () { if (BLE) BLE.quitter(); };
+document.getElementById('xSd').onclick = function () {
+  var el = document.getElementById('bilanExport');
+  if (DEMO || !BLE || !BLE.connecte()) { el.textContent = t('sdPasConnecte'); return; }
+  el.textContent = t('sdEnCours', { a: 0, b: '?' });
+  demander('journal', { progres: function (a, b) { el.textContent = t('sdEnCours', { a: Math.round(a / 1024), b: b ? Math.round(b / 1024) : '?' }); } })
+    .then(function (rep) {
+      var nom = (rep.chemin || '/DLT_inconnu.csv').replace(/^\//, '').replace(/\.csv$/i, '') + '_E3B4.csv';
+      telecharger(nom, rep.texte, 'text/csv');
+      el.textContent = t('sdFini', { a: (rep.taille / 1024).toFixed(1) });
+    })
+    .catch(function (e) { el.textContent = '!!! ' + e.message; jrn('erreur', 'journal de la E3B4 : ' + e.message); });
+};
+
+// ---- LA DEMONSTRATION (page ouverte seule, ou ?demo=1) : la maquette, telle quelle ----
+function synchroniserDemo() {
+  var neufs = 0, deja = 0;
+  carteSD.forEach(function (x) { if (ajouterTexte(x.texte, x.board)) neufs++; else deja++; });
+  jrn('synchro', 'synchronisation : ' + neufs + ' run(s) récupéré(s) de la carte SD, ' + deja + ' déjà dans la base');
+  toutRendre(neufs > 0);
+}
+function connecterDemo() {
+  if (etatCx !== 'off') return;
+  etatCx = 'cx'; majEtat(); jrn('connexion', 'recherche de la E3B4…');
+  setTimeout(function () { etatCx = 'on'; jrn('connexion', 'connectée : DLAP_SD (DÉMO), carte SD ok'); majEtat(); synchroniserDemo(); }, 1200);
+}
+function deconnecterDemo() { if (etatCx === 'off') return; etatCx = 'off'; jrn('connexion', 'déconnectée par l’utilisateur'); majEtat(); }
+// DEMO : un run arrive sur la carte SD de la E3B4 ; la page ne le voit en direct QUE si elle est connectee
+function nouveauPassage() {
+  var v = VOITURES[1 + Math.floor(alea() * (VOITURES.length - 1))], x = { texte: fabriquerRun(v), board: v.unit };
+  carteSD.push(x);
+  if (etatCx === 'on') { var r = ajouterTexte(x.texte, x.board); if (r) toutRendre(true); }
+  else majEtat();
+}
+document.getElementById('btnAjout').onclick = nouveauPassage;
+setInterval(function () {
+  var d = new Date(); document.getElementById('horloge').textContent = hms(d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds());
+  if (recoit) majEtat();                         // l'avis de reception s'efface seul apres 4 s
+}, 1000);
+
+// ---- LE DEMARRAGE ----
+jrn('page', 'page ouverte (tableau v111' + (DEMO ? ', DÉMONSTRATION' : '') + ')');
+if (DEMO) {
+  // le matin, 12 runs sont deja sur la carte SD ; la page part vide et les recoit a la connexion.
+  // Le premier est la COURSE SIMULEE DU KIT (mot `sim`) : ses temps doivent etre ceux du bus CAN.
+  carteSD.push({ texte: fabriquerRun(VOITURES[0]), board: VOITURES[0].unit });
+  for (var n = 0; n < 12; n++) { var v = VOITURES[1 + n % 3]; carteSD.push({ texte: fabriquerRun(v), board: v.unit }); }
+  setInterval(function () { if (document.getElementById('auto').checked) nouveauPassage(); }, 20000);
+  document.getElementById('btnRetour').hidden = true;
+  document.getElementById('btnRelire').hidden = true;
+  document.getElementById('xSd').disabled = true;
+  toutRendre(false);
+} else {
+  document.getElementById('chipDemo').hidden = true;
+  document.getElementById('carteDemo').hidden = true;
+  BLE.surDump(surDumpBrut); BLE.surAvis(surAvis); BLE.surEtat(surEtat);
+  toutRendre(false);
+  var demarrer = function () { if (BLE.connecte()) surEtat('connecte'); else majEtat(); };
+  chargerBase().then(function (L) {
+    L.forEach(function (x) { ajouterTexte(x.texte, x.board, x.id, x.seq, { chemin: x.chemin, recuMs: x.recuMs, meteo: x.meteo, silence: true }); if (x.chemin) connus[x.chemin] = true; });
+    trierRuns();
+    jrn('base', L.length + ' run(s) relus dans la tablette');
+    toutRendre(false); demarrer();
+  }).catch(function (e) {
+    jrn('erreur', '!!! base de la tablette illisible (' + (e && e.message) + ') : les runs ne seront PAS gardés au rechargement');
+    toutRendre(false); demarrer();
+  });
+  // la verification periodique : rattrape un avis perdu, ou remplace les avis absents (vieux firmware)
+  setInterval(function () {
+    if (etatCx !== 'on' || lectureEnCours || !BLE.connecte()) return;
+    if (Date.now() - derniereSynchro >= (BLE.avecAvis() ? 60000 : 30000)) synchroniser('vérification');
+  }, 5000);
+}
+</script>
+</body>
+</html>

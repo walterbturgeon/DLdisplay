@@ -11,3 +11,6 @@ qr_jeton*.png
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# banc du tableau (runs reels, adaptateur imite) : jamais publie
+_essai/

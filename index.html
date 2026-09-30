@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v110<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v111<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -572,9 +572,10 @@ const CHR_STATE     = '7a1e0002-9f2b-4b8e-8f21-3d6c9a1e0000';
 const CHR_CONFIG    = '7a1e0003-9f2b-4b8e-8f21-3d6c9a1e0000';
 const CHR_COMMAND   = '7a1e0004-9f2b-4b8e-8f21-3d6c9a1e0000';
 const CHR_DUMP      = '7a1e0005-9f2b-4b8e-8f21-3d6c9a1e0000';
+const CHR_EVENT     = '7a1e0006-9f2b-4b8e-8f21-3d6c9a1e0000';   // [v111] avis du DLAP sur carte SD (TDL.0.02+)
 
 let bleDevice = null, bleServer = null;
-let chrTelemetry = null, chrState = null, chrConfig = null, chrCommand = null, chrDump = null;
+let chrTelemetry = null, chrState = null, chrConfig = null, chrCommand = null, chrDump = null, chrEvent = null;
 let stateTimer = null;
 let boardIdCache = '';
 
@@ -611,7 +612,12 @@ async function connect() {
     chrState     = await optionnelle(CHR_STATE);
     chrCommand   = await optionnelle(CHR_COMMAND);
     chrDump      = await optionnelle(CHR_DUMP);
+    chrEvent     = await optionnelle(CHR_EVENT);   // [v111] seul le DLAP sur carte SD l'expose
 
+    if (chrEvent) {
+      await chrEvent.startNotifications();
+      chrEvent.addEventListener('characteristicvaluechanged', onEventTableau);
+    }
     if (chrTelemetry) {
       await chrTelemetry.startNotifications();
       chrTelemetry.addEventListener('characteristicvaluechanged', onTelemetry);
@@ -627,9 +633,11 @@ async function connect() {
     document.getElementById('btnConnect').textContent = 'Deconnecter';
     document.getElementById('btnConnect').onclick = disconnect;
     setStatus('Connecte a ' + (bleDevice.name || 'DRAGLOG'));
+    tableauPrevenir('connecte');
   } catch (e) {
     console.error(e);
     setStatus('Echec : ' + e.message);
+    tableauPrevenir('echec', e.message);   // [v111] le tableau montre pourquoi
   }
 }
 
@@ -639,12 +647,13 @@ function disconnect() {
 
 function onDisconnected() {
   if (stateTimer) { clearInterval(stateTimer); stateTimer = null; }
-  chrTelemetry = chrState = chrConfig = chrCommand = chrDump = null;
+  chrTelemetry = chrState = chrConfig = chrCommand = chrDump = chrEvent = null;
   if (dumpTimeoutId) { clearTimeout(dumpTimeoutId); dumpTimeoutId = null; }
   dumpResolve = null;
   document.getElementById('btnConnect').textContent = 'Connecter';
   document.getElementById('btnConnect').onclick = connect;
   setStatus('Deconnecte');
+  tableauPrevenir('deconnecte');
 }
 
 // L'ancienne version faisait "if (!chrCommand) return;" -- un echec
@@ -670,6 +679,67 @@ async function writeCommand(cmd) {
 }
 
 // =====================================================
+// [v111] LE TABLEAU DRAGLOGICS -- DLAP sur carte SD (T-Beam E3B4, TBS_dlap)
+// =====================================================
+// Decision du 30 sept. 2026 (option B) : quand le module connecte se declare
+// "dev":"DLAP" ET "carte":"SD", tableau_sd.html prend tout l'ecran, dans un
+// cadre. Il a son propre style : il ne touche a rien des pages DLPT2/DLPT3/DLAP.
+//
+// ⚠ LE TABLEAU N'APPELLE JAMAIS navigator.bluetooth. Il passe par cet
+// adaptateur, et c'est la seule piece a remplacer le jour du portage en appli
+// (Capacitor ; Web Bluetooth n'existe pas sur iOS).
+var tableauDump = null;                           // le tableau recoit les blocs DUMP bruts
+var tableauAbonnes = { avis: null, etat: null };
+var tableauDernierEchec = '';
+window.tableauBle = {
+  connecte:    function () { return !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected && chrConfig); },
+  disponible:  function () { return !!navigator.bluetooth; },
+  avecAvis:    function () { return !!chrEvent; },
+  nom:         function () { return bleDevice ? (bleDevice.name || '') : ''; },
+  dernierEchec: function () { return tableauDernierEchec; },
+  connecter:   function () { tableauDernierEchec = ''; return connect(); },
+  deconnecter: function () { disconnect(); },
+  lireConfig:  async function () {
+    if (!chrConfig) throw new Error('non connecte');
+    return JSON.parse(dec.decode(await chrConfig.readValue()));
+  },
+  commande:    function (cmd) { return writeCommand(cmd); },
+  surDump:     function (f) { tableauDump = f; },
+  surAvis:     function (f) { tableauAbonnes.avis = f; },
+  surEtat:     function (f) { tableauAbonnes.etat = f; },
+  quitter:     function () { fermerTableau(); }
+};
+function onEventTableau(ev) { if (tableauAbonnes.avis) tableauAbonnes.avis(dec.decode(ev.target.value)); }
+function tableauPrevenir(etat, detail) {
+  if (etat === 'echec') tableauDernierEchec = detail || '';
+  if (tableauAbonnes.etat) { try { tableauAbonnes.etat(etat, detail || ''); } catch (e) { console.error(e); } }
+}
+function ouvrirTableau() {
+  var f = document.getElementById('cadreTableau');
+  if (!f) {
+    f = document.createElement('iframe');
+    f.id = 'cadreTableau'; f.src = 'tableau_sd.html'; f.title = 'Tableau DRAGLOGICS';
+    f.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;z-index:1000;background:var(--bg)';
+    document.body.appendChild(f);
+  }
+  f.style.display = '';
+  document.body.style.overflow = 'hidden';
+  // on s'en souvient : au prochain chargement, les runs gardes dans la tablette se voient avant la connexion
+  try { localStorage.setItem('draglog-tableau', '1'); } catch (e) {}
+  tableauPrevenir(tableauBle.connecte() ? 'connecte' : 'deconnecte');
+}
+function fermerTableau() {
+  // on RETIRE le cadre : sans ca, le flux DUMP resterait detourne vers lui et l'historique du DLAP
+  // (et le telechargement des runs d'un DLPT) ne recevrait plus rien
+  var f = document.getElementById('cadreTableau');
+  if (f) f.remove();
+  tableauDump = null; tableauAbonnes.avis = null; tableauAbonnes.etat = null;
+  document.body.style.overflow = '';
+  try { localStorage.removeItem('draglog-tableau'); } catch (e) {}
+}
+(function () { var t = null; try { t = localStorage.getItem('draglog-tableau'); } catch (e) {} if (t === '1') window.addEventListener('load', ouvrirTableau); })();
+
+// =====================================================
 // [v6.5] Archivage des runs : recuperation BLE (chrDump, par blocs) +
 // telechargement local + envoi direct sur GitHub (jeton garde dans le
 // localStorage du telephone, jamais sur l'ESP32 -- voir memoire projet
@@ -681,6 +751,8 @@ let dumpBuf = '', dumpResolve = null, dumpTimeoutId = null;
 let lastDumpText = '';
 
 function onDumpChunk(ev) {
+  // [v111] le tableau du DLAP sur carte SD lit ses fichiers lui-meme, octet pour octet
+  if (tableauDump) { tableauDump(ev.target.value); return; }
   var chunk = dec.decode(ev.target.value);
   if (chunk === '[BLE_DUMP_END]') {
     if (dumpTimeoutId) { clearTimeout(dumpTimeoutId); dumpTimeoutId = null; }
@@ -2034,6 +2106,9 @@ function appliquerCapacites(j) {
   if (j.dev === 'DLAP') {
     appliquerModeDlap(true);
     document.getElementById('fwBanner').style.display = 'none';
+    // [v111] le DLAP SUR CARTE SD (la E3B4 des essais DRAGLOGICS) : le tableau prend tout l'ecran.
+    // Decouvert par la CLE "carte", jamais par la version (regle de cette page).
+    if (j.carte === 'SD') ouvrirTableau();
     return;
   }
   appliquerModeDlap(false);

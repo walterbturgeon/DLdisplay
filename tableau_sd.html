@@ -218,7 +218,7 @@
       </div>
       <div class="card" id="carteE3B4">
         <h2 data-i18n="e3b4Titre">E3B4</h2>
-        <div class="reglage"><button class="bouton" id="btnRelire" data-i18n="relireCarte">Relire la carte SD</button><button class="bouton" id="btnRetour" data-i18n="retourConfig">Page de configuration</button></div>
+        <div class="reglage"><button class="bouton" id="btnRelire" data-i18n="relireCarte">Relire la carte SD</button><button class="bouton" id="btnCable" data-i18n="cableBrancher" hidden>Brancher par câble</button><button class="bouton" id="btnRetour" data-i18n="retourConfig">Page de configuration</button></div>
         <p class="aide" data-i18n="e3b4Aide"></p>
       </div>
     </div>
@@ -501,7 +501,7 @@ var TXT = {
     xSd: 'Journal de la E3B4 (carte SD)', xSdAide: 'Chaque trame radio reçue et émise. La E3B4 ferme son journal, en ouvre un neuf et envoie l’ancien. Un gros journal prend plusieurs minutes.',
     e3b4PasSd: 'E3B4 · ⚠ PAS DE CARTE SD — aucun run confirmé', e3b4Recoit: 'E3B4 · reçoit {u} run {s} : {a}/{b}', aLire: '{n} à lire',
     lieuE3B4: '. Lieu : GPS de la E3B4.', sdPasConnecte: 'Connecte d’abord la E3B4.', sdEnCours: 'Journal de la E3B4 : {a} ko sur {b} ko…', sdFini: 'Journal de la E3B4 reçu : {a} ko.',
-    pasBluetooth: 'Ce navigateur n’a pas le Bluetooth web. Ouvre la page dans Chrome sur la tablette Android.', e3b4Titre: 'E3B4', relireCarte: 'Relire la carte SD', retourConfig: 'Page de configuration', e3b4Aide: 'La page lit seule les runs de la carte SD à chaque connexion et à chaque run neuf. « Relire » force une vérification. « Page de configuration » ferme le tableau ; il revient à la prochaine connexion de la E3B4.',
+    pasBluetooth: 'Ce navigateur n’a pas le Bluetooth web. Ouvre la page dans Chrome sur la tablette Android.', e3b4Titre: 'E3B4', relireCarte: 'Relire la carte SD', retourConfig: 'Page de configuration', cableBrancher: 'Brancher par câble', e3b4Aide: 'La page lit seule les runs de la carte SD à chaque connexion et à chaque run neuf. « Relire » force une vérification. « Page de configuration » ferme le tableau ; il revient à la prochaine connexion de la E3B4. Par câble (conseillé, la E3B4 en BLE coupé) : touche « Brancher par câble » une première fois ; ensuite, la E3B4 se connecte seule dès que le câble est branché.',
     journalDiag: 'Journal de diagnostic', bilanExport: 'Export : {a} fichier(s) sur {b}.',
     bConnecter: 'Connecter', bConnexion: 'Connexion…', bConnecte: 'Connecté', bTableau: 'Tableau', bPassages: 'Passages', bInscr: 'Inscriptions', bReglages: 'Réglages', bExporter: 'Exporter',
     e3b4On: 'E3B4 · SD ok · {n} runs sur la carte', e3b4Cx: 'E3B4 · connexion…', e3b4Off: 'E3B4 · non connectée',
@@ -536,7 +536,7 @@ var TXT = {
     xSd: 'E3B4 log (SD card)', xSdAide: 'Every radio frame received and sent. The E3B4 closes its log, opens a new one and sends the old one. A large log takes several minutes.',
     e3b4PasSd: 'E3B4 · ⚠ NO SD CARD — no run confirmed', e3b4Recoit: 'E3B4 · receiving {u} run {s}: {a}/{b}', aLire: '{n} to read',
     lieuE3B4: '. Location: E3B4 GPS.', sdPasConnecte: 'Connect the E3B4 first.', sdEnCours: 'E3B4 log: {a} kB of {b} kB…', sdFini: 'E3B4 log received: {a} kB.',
-    pasBluetooth: 'This browser has no Web Bluetooth. Open the page in Chrome on the Android tablet.', e3b4Titre: 'E3B4', relireCarte: 'Read the SD card again', retourConfig: 'Configuration page', e3b4Aide: 'The page reads the runs from the SD card by itself at each connection and at each new run. “Read again” forces a check. “Configuration page” closes the board; it comes back at the next E3B4 connection.',
+    pasBluetooth: 'This browser has no Web Bluetooth. Open the page in Chrome on the Android tablet.', e3b4Titre: 'E3B4', relireCarte: 'Read the SD card again', retourConfig: 'Configuration page', cableBrancher: 'Connect by cable', e3b4Aide: 'The page reads the runs from the SD card by itself at each connection and at each new run. “Read again” forces a check. “Configuration page” closes the board; it comes back at the next E3B4 connection. By cable (recommended, E3B4 with BLE off): touch “Connect by cable” once; after that, the E3B4 connects by itself as soon as the cable is plugged in.',
     journalDiag: 'Diagnostic log', bilanExport: 'Export: {a} file(s) of {b}.',
     bConnecter: 'Connect', bConnexion: 'Connecting…', bConnecte: 'Connected', bTableau: 'Board', bPassages: 'Passes', bInscr: 'Entries', bReglages: 'Settings', bExporter: 'Export',
     e3b4On: 'E3B4 · SD ok · {n} runs on the card', e3b4Cx: 'E3B4 · connecting…', e3b4Off: 'E3B4 · not connected',
@@ -1050,6 +1050,15 @@ document.getElementById('btnCx').onclick = function () { if (etatCx === 'on') de
 document.getElementById('bandeau').onclick = connecter;
 document.getElementById('btnRelire').onclick = function () { if (DEMO) return; if (etatCx !== 'on') { connecter(); return; } essais = {}; synchroniser('à la demande'); };
 document.getElementById('btnRetour').onclick = function () { if (BLE) BLE.quitter(); };
+// [v114] la E3B4 par le CABLE USB : la premiere fois, Chrome demande la permission ; ensuite elle se connecte seule
+document.getElementById('btnCable').onclick = function () {
+  if (DEMO || !BLE || !BLE.connecterCable) return;
+  if (etatCx === 'on' && BLE.parCable && BLE.parCable()) { jrn('connexion', 'déjà connectée par le câble'); return; }
+  etatCx = 'cx'; majEtat(); jrn('connexion', 'ouverture du câble USB…');
+  Promise.resolve(BLE.connecterCable()).then(function () {
+    if (!BLE.connecte() && etatCx === 'cx') { etatCx = 'off'; if (BLE.dernierEchec()) jrn('erreur', 'câble : ' + BLE.dernierEchec()); majEtat(); }
+  });
+};
 document.getElementById('xSd').onclick = function () {
   var el = document.getElementById('bilanExport');
   if (DEMO || !BLE || !BLE.connecte()) { el.textContent = t('sdPasConnecte'); return; }
@@ -1090,7 +1099,7 @@ setInterval(function () {
 }, 1000);
 
 // ---- LE DEMARRAGE ----
-jrn('page', 'page ouverte (tableau v111' + (DEMO ? ', DÉMONSTRATION' : '') + ')');
+jrn('page', 'page ouverte (tableau v114' + (DEMO ? ', DÉMONSTRATION' : '') + ')');
 if (DEMO) {
   // le matin, 12 runs sont deja sur la carte SD ; la page part vide et les recoit a la connexion.
   // Le premier est la COURSE SIMULEE DU KIT (mot `sim`) : ses temps doivent etre ceux du bus CAN.
@@ -1105,6 +1114,7 @@ if (DEMO) {
   document.getElementById('chipDemo').hidden = true;
   document.getElementById('carteDemo').hidden = true;
   BLE.surDump(surDumpBrut); BLE.surAvis(surAvis); BLE.surEtat(surEtat);
+  document.getElementById('btnCable').hidden = !(BLE.cableDisponible && BLE.cableDisponible());   // [v114] Chrome avec WebUSB
   toutRendre(false);
   var demarrer = function () { if (BLE.connecte()) surEtat('connecte'); else majEtat(); };
   chargerBase().then(function (L) {

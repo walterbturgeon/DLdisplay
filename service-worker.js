@@ -14,7 +14,7 @@
 // ENCORE l'ancien filtre : tant qu'elle n'aura pas la meme correction, elle
 // continuera d'effacer ce cache-ci. Les deux doivent etre corrigees.
 const PREFIX = 'draglog-dev-';
-const CACHE = PREFIX + 'v113';   // v113 : la carte Metier (DRAGLOGICS / TRACKLOGICS) du DLPT2
+const CACHE = PREFIX + 'v114';   // v114 : la E3B4 par le cable USB (WebUSB) ; v113 : la carte Metier du DLPT2
 const ASSETS = ['./', './index.html', './tableau_sd.html', './manifest.json', './logo.svg', './icon-192.webp', './icon-512.webp'];
 
 self.addEventListener('install', (ev) => {

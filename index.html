@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v113<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v114<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -193,6 +193,11 @@ function couleur(nom){
 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
 <button type="button" class="btn" id="btnConnect" style="margin-top:0;" onclick="connect()">Connecter</button>
 <span id="connStatus" class="small">Pas connecté</span>
+</div>
+<!-- [v114] la E3B4 par le CABLE USB (OTG) : toute la radio de la E3B4 reste aux kits -->
+<div id="cableBloc" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px;">
+<button type="button" class="btn" id="btnCable" style="margin-top:0;" onclick="cableClic()">Câble E3B4</button>
+<span id="cableStatus" class="small">Câble : pas branché</span>
 </div>
 <div id="bleUnsupported" class="err small" style="margin-top:12px;display:none;">
 Ce navigateur ne fait pas le Bluetooth Web. Prends Chrome sur Android. Sur iPhone, il faut l'app <b>Bluefy</b> — un navigateur tiers de l'App Store, pas un produit Apple.
@@ -706,19 +711,26 @@ async function writeCommand(cmd) {
 var tableauDump = null;                           // le tableau recoit les blocs DUMP bruts
 var tableauAbonnes = { avis: null, etat: null };
 var tableauDernierEchec = '';
+// [v114] ⚠ L'ADAPTATEUR PASSE PAR LE CABLE QUAND IL EST OUVERT (voir plus bas, « la E3B4 par le cable »), sinon
+// par le BLE. Le nom reste tableauBle : le tableau n'a pas a savoir par ou passent les octets.
 window.tableauBle = {
-  connecte:    function () { return !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected && chrConfig); },
-  disponible:  function () { return !!navigator.bluetooth; },
-  avecAvis:    function () { return !!chrEvent; },
-  nom:         function () { return bleDevice ? (bleDevice.name || '') : ''; },
+  connecte:    function () { return usb.ouvert || !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected && chrConfig); },
+  disponible:  function () { return !!navigator.bluetooth || !!navigator.usb; },
+  avecAvis:    function () { return usb.ouvert || !!chrEvent; },
+  nom:         function () { return usb.ouvert ? 'E3B4 par câble' : (bleDevice ? (bleDevice.name || '') : ''); },
   dernierEchec: function () { return tableauDernierEchec; },
-  connecter:   function () { tableauDernierEchec = ''; return connect(); },
-  deconnecter: function () { disconnect(); },
+  // le bouton Connecter du tableau : le cable si une E3B4 deja permise est branchee (sans fenetre), sinon le BLE
+  connecter:   async function () { tableauDernierEchec = ''; if (await usbAuto('connecter')) return; return connect(); },
+  parCable:    function () { return usb.ouvert; },
+  cableDisponible: function () { return !!navigator.usb; },
+  connecterCable: function () { tableauDernierEchec = ''; return usbConnecter().catch(function (e) { tableauDernierEchec = e.message; tableauPrevenir('echec', 'câble : ' + e.message); }); },
+  deconnecter: function () { if (usb.ouvert) usbFermer(); else disconnect(); },
   lireConfig:  async function () {
+    if (usb.ouvert) return usbLireConfig();
     if (!chrConfig) throw new Error('non connecte');
     return JSON.parse(dec.decode(await chrConfig.readValue()));
   },
-  commande:    function (cmd) { return writeCommand(cmd); },
+  commande:    function (cmd) { return usb.ouvert ? usbCommande(cmd) : writeCommand(cmd); },
   surDump:     function (f) { tableauDump = f; },
   surAvis:     function (f) { tableauAbonnes.avis = f; },
   surEtat:     function (f) { tableauAbonnes.etat = f; },
@@ -726,6 +738,8 @@ window.tableauBle = {
 };
 function onEventTableau(ev) { if (tableauAbonnes.avis) tableauAbonnes.avis(dec.decode(ev.target.value)); }
 function tableauPrevenir(etat, detail) {
+  // [v114] le BLE qui tombe (un DLPT2, par exemple) ne deconnecte pas le tableau tant que le cable tient
+  if (etat === 'deconnecte' && usb.ouvert) return;
   if (etat === 'echec') tableauDernierEchec = detail || '';
   if (tableauAbonnes.etat) { try { tableauAbonnes.etat(etat, detail || ''); } catch (e) { console.error(e); } }
 }
@@ -753,6 +767,146 @@ function fermerTableau() {
   try { localStorage.removeItem('draglog-tableau'); } catch (e) {}
 }
 (function () { var t = null; try { t = localStorage.getItem('draglog-tableau'); } catch (e) {} if (t === '1') window.addEventListener('load', ouvrirTableau); })();
+
+// =====================================================
+// [v114] LA E3B4 PAR LE CABLE USB (OTG) -- WebUSB
+// =====================================================
+// Banc du 1er oct. 2026 : avec le BLE de la E3B4 actif, un kit pouvait rester INAUDIBLE 10 a 86 s (5 essais sur 7) ;
+// BLE coupe, 0 silence et des transferts 2 a 3 fois plus rapides. Decision de Walter : la tablette passe par le
+// cable, la E3B4 en `ble off`. Firmware TBS_dlap TDL.0.05 : mots `p cfg | p runs | p lire <chemin> | p journal |
+// p ping`, reponses en lignes P; ; ici elles redeviennent le flux du BLE (blocs + [BLE_DUMP_BEGIN|ERR|END], avis).
+// ⚠ WebUSB, PAS Web Serial : sur la tablette du pilote (Chrome 154), Web Serial ne liste pas la S3 (USB JTAG/serial,
+// 303A:1001). ⚠ L'interface de CONTROLE (classe 2) AVANT celle de DONNEES (classe 0x0A), comme le polyfill de
+// Google : la donnee seule est refusee (« unable to claim interface », essai du 1er oct.). ⚠ Aucune requete de
+// controle : on ne touche ni DTR ni RTS (sur la S3, RTS seul redemarre la carte).
+// ⚠ Une autre carte S3 (le DLdisplay, par exemple) porte le meme VID : sans reponse a `p ping` en 8 s, on la rend.
+var VID_E3B4 = 0x303A;
+var usb = { dev: null, itfCtl: null, itfDon: null, epIn: 0, epOut: 0, ouvert: false, reste: '', cfgAttente: null, ping: null, pongMs: 0 };
+var usbDec = new TextDecoder();
+function cableStatut(t) { var e = document.getElementById('cableStatus'); if (e) e.textContent = t; }
+function usbE3B4(liste) { return (liste || []).filter(function (d) { return d.vendorId === VID_E3B4; })[0] || null; }
+function usbEnvoyer(txt) {
+  if (!usb.ouvert || !usb.dev) return Promise.reject(new Error('câble non branché'));
+  return usb.dev.transferOut(usb.epOut, enc.encode(txt + '\n'));
+}
+function usbFlux(s) { if (tableauDump) tableauDump(new DataView(enc.encode(s).buffer)); }
+function usbLigne(l) {
+  if (l.indexOf('P;') !== 0) return;                       // N; E; F; : la console de la carte, pas pour la page
+  if (l === 'P;PONG') { usb.pongMs = Date.now(); return; }
+  if (l.indexOf('P;CFG;') === 0) {
+    var a = usb.cfgAttente; usb.cfgAttente = null;
+    if (a) { try { a.ok(JSON.parse(l.slice(6))); } catch (e) { a.ko(new Error('configuration illisible par le câble')); } }
+    return;
+  }
+  if (l.indexOf('P;AVIS;') === 0) { if (tableauAbonnes.avis) tableauAbonnes.avis(l.slice(7)); return; }
+  if (l.indexOf('P;DEBUT;') === 0) { var c = l.split(';'); usbFlux('[BLE_DUMP_BEGIN];' + c[2] + ';' + c[3] + ';' + c[4]); return; }
+  if (l.indexOf('P;B;') === 0) {
+    var bin;
+    try { bin = atob(l.slice(4)); } catch (e) { usbFlux('[BLE_DUMP_ERR];bloc illisible par le câble;0'); return; }   // ⚠ bruyant : la page refuse le fichier
+    var u = new Uint8Array(bin.length); for (var k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+    if (tableauDump) tableauDump(new DataView(u.buffer));
+    return;
+  }
+  if (l.indexOf('P;ERR;') === 0) { usbFlux('[BLE_DUMP_ERR];' + l.slice(6) + ';0'); return; }
+  if (l.indexOf('P;REFUS;') === 0) { usbFlux('[BLE_DUMP_ERR];' + l.slice(8) + ';0'); usbFlux('[BLE_DUMP_END]'); return; }
+  if (l.indexOf('P;FIN;') === 0) { usbFlux('[BLE_DUMP_END]'); return; }
+}
+async function usbLire(dev) {
+  while (usb.ouvert && usb.dev === dev) {
+    var r;
+    try { r = await dev.transferIn(usb.epIn, 4096); }
+    catch (e) { if (usb.ouvert && usb.dev === dev) usbPerdu('lecture interrompue (' + e.message + ')'); return; }
+    if (r.data && r.data.byteLength) {
+      usb.reste += usbDec.decode(r.data, { stream: true });
+      var i;
+      while ((i = usb.reste.indexOf('\n')) >= 0) { var l = usb.reste.slice(0, i).replace(/\r$/, ''); usb.reste = usb.reste.slice(i + 1); try { usbLigne(l); } catch (e) { console.error(e); } }
+      if (usb.reste.length > 200000) usb.reste = '';       // une ligne sans fin : ce n'est pas une E3B4
+    }
+  }
+}
+async function usbOuvrir(dev) {
+  if (usb.ouvert) return;
+  await dev.open();
+  if (!dev.configuration) await dev.selectConfiguration(1);
+  var ctl = null, don = null, epIn = 0, epOut = 0;
+  dev.configuration.interfaces.forEach(function (i) {
+    var a = i.alternates[0];
+    if (a.interfaceClass === 0x02 && ctl === null) ctl = i.interfaceNumber;
+    if (a.interfaceClass === 0x0A) {
+      don = i.interfaceNumber;
+      a.endpoints.forEach(function (ep) { if (ep.type === 'bulk' && ep.direction === 'in') epIn = ep.endpointNumber; if (ep.type === 'bulk' && ep.direction === 'out') epOut = ep.endpointNumber; });
+    }
+  });
+  if (don === null || !epIn || !epOut) { try { await dev.close(); } catch (e) {} throw new Error('interface série introuvable sur cette carte USB'); }
+  try { if (ctl !== null) await dev.claimInterface(ctl); await dev.claimInterface(don); }
+  catch (e) { try { await dev.close(); } catch (e2) {} throw new Error('interface USB refusée (' + e.message + ')'); }
+  usb.dev = dev; usb.itfCtl = ctl; usb.itfDon = don; usb.epIn = epIn; usb.epOut = epOut; usb.ouvert = true; usb.reste = ''; usb.pongMs = 0;
+  usbLire(dev);
+  // la carte vient peut-etre de demarrer (alimentee par la tablette) : on attend sa reponse, 8 s au plus
+  var t0 = Date.now();
+  while (!usb.pongMs && usb.ouvert && Date.now() - t0 < 8000) { usbEnvoyer('p ping').catch(function () {}); await new Promise(function (ok) { setTimeout(ok, 500); }); }
+  if (!usb.pongMs) { await usbFermer(true); throw new Error('cette carte USB ne répond pas comme une E3B4 (TBS_dlap TDL.0.05 ou plus)'); }
+  // les avis P;AVIS partent tant que la page a parle depuis 30 s : un `p ping` toutes les 10 s
+  usb.ping = setInterval(function () { if (usb.ouvert) usbEnvoyer('p ping').catch(function () {}); }, 10000);
+  cableStatut('Câble : E3B4 branchée');
+}
+async function usbFermer(silence) {
+  var dev = usb.dev; usb.ouvert = false; usb.dev = null;
+  if (usb.ping) { clearInterval(usb.ping); usb.ping = null; }
+  if (usb.cfgAttente) { var a = usb.cfgAttente; usb.cfgAttente = null; a.ko(new Error('câble fermé')); }
+  if (dev) { try { if (usb.itfDon !== null) await dev.releaseInterface(usb.itfDon); if (usb.itfCtl !== null) await dev.releaseInterface(usb.itfCtl); } catch (e) {} try { await dev.close(); } catch (e) {} }
+  if (!silence) { cableStatut('Câble : fermé'); tableauPrevenir('deconnecte'); }
+}
+function usbPerdu(raison) {
+  usbFermer(true);
+  cableStatut('Câble : ' + raison);
+  tableauPrevenir('deconnecte');
+}
+function usbLireConfig() {
+  return new Promise(function (ok, ko) {
+    if (!usb.ouvert) { ko(new Error('câble non branché')); return; }
+    var fini = false;
+    var garde = setTimeout(function () { if (fini) return; fini = true; usb.cfgAttente = null; ko(new Error('la E3B4 ne répond pas par le câble (p cfg, 4 s)')); }, 4000);
+    usb.cfgAttente = { ok: function (j) { if (fini) return; fini = true; clearTimeout(garde); ok(j); }, ko: function (e) { if (fini) return; fini = true; clearTimeout(garde); ko(e); } };
+    usbEnvoyer('p cfg').catch(function (e) { if (usb.cfgAttente) usb.cfgAttente.ko(e); });
+  });
+}
+function usbCommande(cmd) {
+  // seuls les mots du tableau passent par le cable ; le reste (hist, ble off, reboot...) reste au BLE
+  if (cmd === 'runs' || cmd === 'journal' || cmd.indexOf('lire ') === 0) return usbEnvoyer('p ' + cmd);
+  return Promise.reject(new Error('« ' + cmd + ' » ne passe pas par le câble'));
+}
+// avec une fenetre de choix (geste de l'utilisateur) : la premiere fois, Chrome demande la permission
+async function usbConnecter() {
+  if (!navigator.usb) throw new Error('ce navigateur n’a pas WebUSB : utilise Chrome sur Android');
+  var dev = usbE3B4(await navigator.usb.getDevices());
+  if (!dev) dev = await navigator.usb.requestDevice({ filters: [{ vendorId: VID_E3B4 }] });
+  cableStatut('Câble : ouverture…');
+  await usbOuvrir(dev);
+  tableauPrevenir('connecte');
+}
+// sans fenetre : une E3B4 deja permise et branchee s'ouvre seule (au chargement, au branchement, au bouton Connecter)
+async function usbAuto(raison) {
+  if (!navigator.usb) return false;
+  if (usb.ouvert) { tableauPrevenir('connecte'); return true; }   // deja ouvert : le tableau doit le savoir quand meme
+  var dev = usbE3B4(await navigator.usb.getDevices());
+  if (!dev) return false;
+  cableStatut('Câble : ouverture (' + raison + ')…');
+  try { await usbOuvrir(dev); }
+  catch (e) { cableStatut('Câble : ' + e.message); tableauDernierEchec = e.message; tableauPrevenir('echec', 'câble : ' + e.message); return false; }
+  ouvrirTableau(); tableauPrevenir('connecte');
+  return true;
+}
+function cableClic() {
+  if (usb.ouvert) { ouvrirTableau(); return; }
+  usbConnecter().then(ouvrirTableau).catch(function (e) { cableStatut('Câble : ' + e.message); });
+}
+if (navigator.usb) {
+  document.addEventListener('DOMContentLoaded', function () { var b = document.getElementById('cableBloc'); if (b) b.style.display = 'flex'; });
+  navigator.usb.addEventListener('connect', function (ev) { if (ev.device.vendorId === VID_E3B4) setTimeout(function () { usbAuto('branchement'); }, 800); });
+  navigator.usb.addEventListener('disconnect', function (ev) { if (usb.dev && ev.device === usb.dev) usbPerdu('câble débranché'); });
+  window.addEventListener('load', function () { usbAuto('chargement'); });
+}
 
 // =====================================================
 // [v6.5] Archivage des runs : recuperation BLE (chrDump, par blocs) +

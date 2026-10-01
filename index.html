@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v114<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v115<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -720,7 +720,7 @@ window.tableauBle = {
   nom:         function () { return usb.ouvert ? 'E3B4 par câble' : (bleDevice ? (bleDevice.name || '') : ''); },
   dernierEchec: function () { return tableauDernierEchec; },
   // le bouton Connecter du tableau : le cable si une E3B4 deja permise est branchee (sans fenetre), sinon le BLE
-  connecter:   async function () { tableauDernierEchec = ''; if (await usbAuto('connecter')) return; return connect(); },
+  connecter:   function () { return connecterTableau(); },   // [v115] le cable d'abord s'il a deja servi ici
   parCable:    function () { return usb.ouvert; },
   cableDisponible: function () { return !!navigator.usb; },
   connecterCable: function () { tableauDernierEchec = ''; return usbConnecter().catch(function (e) { tableauDernierEchec = e.message; tableauPrevenir('echec', 'câble : ' + e.message); }); },
@@ -781,10 +781,20 @@ function fermerTableau() {
 // controle : on ne touche ni DTR ni RTS (sur la S3, RTS seul redemarre la carte).
 // ⚠ Une autre carte S3 (le DLdisplay, par exemple) porte le meme VID : sans reponse a `p ping` en 8 s, on la rend.
 var VID_E3B4 = 0x303A;
-var usb = { dev: null, itfCtl: null, itfDon: null, epIn: 0, epOut: 0, ouvert: false, reste: '', cfgAttente: null, ping: null, pongMs: 0 };
+var usb = { dev: null, itfCtl: null, itfDon: null, epIn: 0, epOut: 0, ouvert: false, reste: '', cfgAttente: null, ping: null, pongMs: 0, enCours: false, refusees: {} };
 var usbDec = new TextDecoder();
 function cableStatut(t) { var e = document.getElementById('cableStatus'); if (e) e.textContent = t; }
-function usbE3B4(liste) { return (liste || []).filter(function (d) { return d.vendorId === VID_E3B4; })[0] || null; }
+// [v115] chaque etape du cable va au journal du tableau (essai du 1er oct. : apres un rebranchement, le journal v114 ne
+// disait RIEN -- impossible de savoir si l'evenement etait arrive ou si la carte n'etait plus permise)
+function cableJrn(msg) {
+  console.log('[cable] ' + msg);
+  try { var f = document.getElementById('cadreTableau'); if (f && f.contentWindow && f.contentWindow.jrn) f.contentWindow.jrn('câble', msg); } catch (e) {}
+}
+function usbNom(d) { return d ? ('0x' + d.vendorId.toString(16) + ':0x' + d.productId.toString(16) + ' n° ' + (d.serialNumber || '(aucun)')) : '?'; }
+// une carte S3 qui n'a pas repondu a `p ping` n'est plus essayee avant d'avoir ete debranchee
+function usbE3B4(liste) { return (liste || []).filter(function (d) { return d.vendorId === VID_E3B4 && !usb.refusees[d.serialNumber || '?']; })[0] || null; }
+// [v115] le cable a deja servi sur cette tablette : Connecter et le bandeau ouvrent le choix USB, pas le Bluetooth
+function cableVoulu() { try { return localStorage.getItem('draglog-cable') === '1'; } catch (e) { return false; } }
 function usbEnvoyer(txt) {
   if (!usb.ouvert || !usb.dev) return Promise.reject(new Error('câble non branché'));
   return usb.dev.transferOut(usb.epOut, enc.encode(txt + '\n'));
@@ -845,10 +855,15 @@ async function usbOuvrir(dev) {
   // la carte vient peut-etre de demarrer (alimentee par la tablette) : on attend sa reponse, 8 s au plus
   var t0 = Date.now();
   while (!usb.pongMs && usb.ouvert && Date.now() - t0 < 8000) { usbEnvoyer('p ping').catch(function () {}); await new Promise(function (ok) { setTimeout(ok, 500); }); }
-  if (!usb.pongMs) { await usbFermer(true); throw new Error('cette carte USB ne répond pas comme une E3B4 (TBS_dlap TDL.0.05 ou plus)'); }
+  if (!usb.pongMs) {
+    usb.refusees[dev.serialNumber || '?'] = true;    // [v115] plus essayee avant d'etre debranchee
+    await usbFermer(true); throw new Error('cette carte USB (' + usbNom(dev) + ') ne répond pas comme une E3B4 (TBS_dlap TDL.0.05 ou plus)');
+  }
   // les avis P;AVIS partent tant que la page a parle depuis 30 s : un `p ping` toutes les 10 s
   usb.ping = setInterval(function () { if (usb.ouvert) usbEnvoyer('p ping').catch(function () {}); }, 10000);
   cableStatut('Câble : E3B4 branchée');
+  try { localStorage.setItem('draglog-cable', '1'); } catch (e) {}
+  cableJrn('ouvert : ' + usbNom(dev) + ', la E3B4 répond en ' + (usb.pongMs - t0) + ' ms');
 }
 async function usbFermer(silence) {
   var dev = usb.dev; usb.ouvert = false; usb.dev = null;
@@ -879,23 +894,40 @@ function usbCommande(cmd) {
 // avec une fenetre de choix (geste de l'utilisateur) : la premiere fois, Chrome demande la permission
 async function usbConnecter() {
   if (!navigator.usb) throw new Error('ce navigateur n’a pas WebUSB : utilise Chrome sur Android');
+  if (usb.ouvert) { tableauPrevenir('connecte'); return; }
+  if (usb.enCours) throw new Error('ouverture du câble déjà en cours');
   var dev = usbE3B4(await navigator.usb.getDevices());
-  if (!dev) dev = await navigator.usb.requestDevice({ filters: [{ vendorId: VID_E3B4 }] });
-  cableStatut('Câble : ouverture…');
-  await usbOuvrir(dev);
+  if (!dev) { cableJrn('aucune E3B4 permise branchée : fenêtre de choix USB'); dev = await navigator.usb.requestDevice({ filters: [{ vendorId: VID_E3B4 }] }); }
+  cableStatut('Câble : ouverture…'); cableJrn('ouverture (choix) : ' + usbNom(dev));
+  usb.enCours = true;
+  try { await usbOuvrir(dev); } finally { usb.enCours = false; }
   tableauPrevenir('connecte');
 }
-// sans fenetre : une E3B4 deja permise et branchee s'ouvre seule (au chargement, au branchement, au bouton Connecter)
+// sans fenetre : une E3B4 deja permise et branchee s'ouvre seule (au chargement, au branchement, en veille, au bouton Connecter)
 async function usbAuto(raison) {
   if (!navigator.usb) return false;
   if (usb.ouvert) { tableauPrevenir('connecte'); return true; }   // deja ouvert : le tableau doit le savoir quand meme
-  var dev = usbE3B4(await navigator.usb.getDevices());
-  if (!dev) return false;
-  cableStatut('Câble : ouverture (' + raison + ')…');
+  if (usb.enCours) return false;                                  // [v115] le branchement et la veille ne s'ouvrent pas a deux
+  var liste = await navigator.usb.getDevices(), dev = usbE3B4(liste);
+  if (!dev) { if (raison !== 'veille') cableJrn(raison + ' : aucune E3B4 permise branchée (' + liste.length + ' carte(s) USB permise(s))'); return false; }
+  cableStatut('Câble : ouverture (' + raison + ')…'); cableJrn('ouverture (' + raison + ') : ' + usbNom(dev));
+  usb.enCours = true;
   try { await usbOuvrir(dev); }
-  catch (e) { cableStatut('Câble : ' + e.message); tableauDernierEchec = e.message; tableauPrevenir('echec', 'câble : ' + e.message); return false; }
+  catch (e) { usb.enCours = false; usb.echecMs = Date.now(); cableStatut('Câble : ' + e.message); cableJrn('ÉCHEC (' + raison + ') : ' + e.message); tableauDernierEchec = e.message; tableauPrevenir('echec', 'câble : ' + e.message); return false; }
+  usb.enCours = false;
   ouvrirTableau(); tableauPrevenir('connecte');
   return true;
+}
+// [v115] le Connecter du tableau et son bandeau : le cable s'il a deja servi ici (une E3B4 permise s'ouvre sans fenetre ;
+// sinon -- Android a pu retirer la permission au debranchement -- la fenetre de choix USB), sinon le Bluetooth
+async function connecterTableau() {
+  tableauDernierEchec = '';
+  if (await usbAuto('connecter')) return;
+  if (navigator.usb && cableVoulu()) {
+    try { await usbConnecter(); } catch (e) { cableJrn('ÉCHEC (connecter) : ' + e.message); tableauDernierEchec = 'câble : ' + e.message; tableauPrevenir('echec', 'câble : ' + e.message); }
+    return;
+  }
+  return connect();
 }
 function cableClic() {
   if (usb.ouvert) { ouvrirTableau(); return; }
@@ -903,9 +935,28 @@ function cableClic() {
 }
 if (navigator.usb) {
   document.addEventListener('DOMContentLoaded', function () { var b = document.getElementById('cableBloc'); if (b) b.style.display = 'flex'; });
-  navigator.usb.addEventListener('connect', function (ev) { if (ev.device.vendorId === VID_E3B4) setTimeout(function () { usbAuto('branchement'); }, 800); });
-  navigator.usb.addEventListener('disconnect', function (ev) { if (usb.dev && ev.device === usb.dev) usbPerdu('câble débranché'); });
+  navigator.usb.addEventListener('connect', function (ev) {
+    cableJrn('branchement vu : ' + usbNom(ev.device));
+    if (ev.device.vendorId === VID_E3B4) setTimeout(function () { usbAuto('branchement'); }, 800);
+  });
+  navigator.usb.addEventListener('disconnect', function (ev) {
+    cableJrn('débranchement vu : ' + usbNom(ev.device));
+    delete usb.refusees[ev.device.serialNumber || '?'];             // rebranchee, elle aura droit a un nouvel essai
+    if (usb.dev && ev.device === usb.dev) usbPerdu('câble débranché');
+  });
   window.addEventListener('load', function () { usbAuto('chargement'); });
+  // [v115] LA VEILLE : sur la tablette du pilote, apres un rebranchement, rien ne se passait (journal du 1er oct. 18:51).
+  // Toutes les 3 s, tant que le cable a deja servi ici et qu'il est ferme, on regarde si une E3B4 permise est branchee.
+  var veilleN = -1;
+  setInterval(function () {
+    if (usb.ouvert || usb.enCours || !cableVoulu()) return;
+    if (usb.echecMs && Date.now() - usb.echecMs < 30000) return;   // apres un echec : un essai toutes les 30 s, pas toutes les 3 s
+    navigator.usb.getDevices().then(function (l) {
+      var n = l.filter(function (d) { return d.vendorId === VID_E3B4; }).length;
+      if (n !== veilleN) { cableJrn('veille : ' + n + ' E3B4 permise(s) branchée(s)'); veilleN = n; }
+      if (n) usbAuto('veille');
+    }).catch(function () {});
+  }, 3000);
 }
 
 // =====================================================

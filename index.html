@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v115<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v116<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -254,7 +254,7 @@ Ce navigateur ne fait pas le Bluetooth Web. Prends Chrome sur Android. Sur iPhon
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
 <button type="button" class="btn" style="margin-top:0;" onclick="perfReset()">Reset</button>
 <button type="button" class="btn btn2" style="margin-top:0;" onclick="perfSim()">Simuler un passage</button>
-<label class="small" style="display:flex;align-items:center;gap:6px;margin:0;font-weight:normal;">Offset rollout
+<label id="ofsLbl" class="small" style="display:flex;align-items:center;gap:6px;margin:0;font-weight:normal;">Offset rollout
 <select id="ofs" onchange="setOfs()" style="width:auto;padding:6px;margin:0;"></select></label>
 <span id="perfSt" class="small" style="font-size:15px;">--</span>
 </div>
@@ -549,6 +549,13 @@ GPIO25/26). Voir la carte <b>Etat</b> pour le verdict.
 <option value="2">Front descendant</option>
 </select>
 <div class="small">Pull-up externe obligatoire : 10k entre GPIO34 et 3V3, contact entre GPIO34 et la masse. <b>Jamais de 12 V sur cette broche.</b> Verifie la polarite au moniteur serie : le champ <code>pin=</code> doit basculer H/L quand tu actionnes le contact.</div>
+
+<!-- [v116] la correction de depart du kit (PT2.1.54+, cle "cms") : visible seulement si le kit l'annonce -->
+<div id="cmsBloc" style="display:none;">
+<label for="cms">Correction de départ (ms)</label>
+<input type="number" id="cms" name="cms" min="-600" max="600" step="5" value="0">
+<div class="small">Ajoutée à <b>tous</b> les temps du kit (60 pi au 1/4), pour coller au ticket de la piste. Chaque voiture a la sienne : elle dépend de sa façon de partir (embrayage, 2-step, mouvement). Un nombre positif allonge les temps. Pas de 5 ms, de −600 à +600. Prise à la course suivante. Les vitesses ne changent pas. Exemple du 3 oct. : Dom ≈ +365.</div>
+</div>
 
 <label for="imuf">Filtre du capteur</label>
 <select id="imuf" name="imuf">
@@ -1357,6 +1364,7 @@ async function startOta() {
 // =====================================================
 var win = 10000, buf = [], nowSrv = 0;
 var ofs = 0;
+var kitCorr = false;   // [v116] le kit met sa correction de depart dans ses temps (cle "cms") : ne plus retrancher ofs
 var gfilt = 200;
 // [v6.5] gel du graphique sur un run : des qu'une course demarre (RUNNING),
 // la fenetre s'ancre au depart au lieu de continuer a glisser avec l'heure
@@ -1403,7 +1411,9 @@ function resumeLive() {
   draw();
 }
 
-function fmtT(ms) { return ms == null ? '--' : (ms / 1000 - ofs).toFixed(2) + ' s'; }
+// [v116] avec un kit PT2.1.54+ (kitCorr), le temps affiche est CELUI DU KIT : sa correction de depart y est deja,
+// et l'ancien offset rollout ne sert plus qu'au canal temps Holley. Avant : la page retranchait ofs (kit 28 : -1 s).
+function fmtT(ms) { return ms == null ? '--' : (ms / 1000 - (kitCorr ? 0 : ofs)).toFixed(2) + ' s'; }
 function fmtV(v) { return v == null ? '' : (' @ ' + (v / 100 / 1.609344).toFixed(1) + ' mph'); }
 function fmtVRaw(v) { return v == null ? '' : (' (brut ' + (v / 100 / 1.609344).toFixed(1) + ')'); }
 function fmtE(e) { return e == null ? '' : (' | ecart pos ' + (e > 0 ? '+' : '') + e.toFixed(1) + ' ft'); }
@@ -2485,6 +2495,12 @@ async function refreshConfig() {
   if (j.hecu != null) document.getElementById('hecu').value = j.hecu;
   if (j.imuf != null) document.getElementById('imuf').value = j.imuf;
   if (j.strig != null) document.getElementById('strig').value = j.strig;
+  // [v116] la correction de depart : le kit l'annonce (cle "cms") -> champ visible, et la carte Chrono ne retranche
+  // plus l'ancien offset rollout (le kit met deja la correction dans ses temps)
+  kitCorr = (j.cms != null);
+  document.getElementById('cmsBloc').style.display = kitCorr ? '' : 'none';
+  if (kitCorr) document.getElementById('cms').value = j.cms;
+  var ol = document.getElementById('ofsLbl'); if (ol) ol.style.display = kitCorr ? 'none' : 'flex';
   document.getElementById('t50').checked = !!j.t50;
   document.getElementById('tzh').value = j.tzh;
   document.getElementById('tzm').value = j.tzm;
@@ -2567,6 +2583,17 @@ async function submitConfig(ev) {
   // arrete donc ici, avec un message qui dit laquelle des deux valeurs
   // bloque, plutot que de laisser echouer toute la sauvegarde sans raison
   // visible.
+  // [v116] la correction de depart, seulement si le kit l'a annoncee (cle "cms", PT2.1.54+) ; le firmware refuse la
+  // configuration ENTIERE sur une valeur hors bornes, donc on verifie ici et on dit laquelle
+  if (kitCorr) {
+    var cms = parseInt(document.getElementById('cms').value, 10);
+    if (isNaN(cms) || cms < -600 || cms > 600) {
+      msg.innerHTML = "<div class='err'>Correction de départ : un nombre entier de −600 à +600 ms.</div>";
+      return false;
+    }
+    cfg.cms = Math.round(cms / 5) * 5;
+  }
+
   var errDsp = dspAjouterAConfig(cfg);
   if (errDsp) {
     msg.innerHTML = "<div class='err'>" + errDsp + "</div>";

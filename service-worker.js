@@ -14,7 +14,7 @@
 // ENCORE l'ancien filtre : tant qu'elle n'aura pas la meme correction, elle
 // continuera d'effacer ce cache-ci. Les deux doivent etre corrigees.
 const PREFIX = 'draglog-dev-';
-const CACHE = PREFIX + 'v115';   // v115 : cable -- journal, veille 3 s, reconnexion en un toucher ; v114 : la E3B4 par le cable USB
+const CACHE = PREFIX + 'v116';   // v116 : correction de depart du kit (cms) ; v115 : cable -- journal, veille 3 s, reconnexion en un toucher ; v114 : la E3B4 par le cable USB
 const ASSETS = ['./', './index.html', './tableau_sd.html', './manifest.json', './logo.svg', './icon-192.webp', './icon-512.webp'];
 
 self.addEventListener('install', (ev) => {

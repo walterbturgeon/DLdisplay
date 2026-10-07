@@ -125,7 +125,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{
      ⚠ AFFICHAGE SEULEMENT. Ne JAMAIS s'en servir pour decider quels
      reglages montrer : ca se decide par les CLES du JSON. Un module reste
      au champ doit rester pilotable meme si son numero est inconnu d'ici. -->
-<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v117<span id="fwVer"></span></div>
+<div class="small" style="text-align:center;margin:-12px 0 16px;opacity:.65;">page v118<span id="fwVer"></span></div>
 </div>
 
 <script>
@@ -550,6 +550,29 @@ GPIO25/26). Voir la carte <b>Etat</b> pour le verdict.
 </select>
 <div class="small">Pull-up externe obligatoire : 10k entre GPIO34 et 3V3, contact entre GPIO34 et la masse. <b>Jamais de 12 V sur cette broche.</b> Verifie la polarite au moniteur serie : le champ <code>pin=</code> doit basculer H/L quand tu actionnes le contact.</div>
 
+<!-- [v118] le modele « C » du kit (PT2.1.56+, cle "jpo") : le roll-out regle le depart, la position des jalons place
+     tous les jalons. Visibles seulement si le kit annonce "jpo" : avant la 1.56, le roll-out deplacait aussi les jalons. -->
+<div id="jalBloc" style="display:none;">
+<label for="rpo">Roll-out : où le chrono part (pouces)</label>
+<div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('rpo',-1)">−1</button>
+<input type="number" id="rpo" name="rpo" min="0" max="36" step="1" value="12" style="width:90px;margin-top:0;text-align:center;" oninput="poMontre('rpo')">
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('rpo',1)">+1</button>
+<span id="rpoPi" class="small" style="margin-left:6px;">1,0 pi</span>
+</div>
+<div class="small">Le chrono part quand le véhicule a avancé de ce nombre de pouces depuis l'arrêt. Ce réglage change <b>seulement</b> le départ : un roll-out plus grand raccourcit tous les temps, à peu près de la même valeur. De 0 à 36 po. Napierville, oct. 2026 : voiture ≈ 8 à 12 po, moto ≈ 3 à 7 po.</div>
+<label for="jpo">Position des jalons (pouces)</label>
+<div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('jpo',-6)">−6</button>
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('jpo',-1)">−1</button>
+<input type="number" id="jpo" name="jpo" min="-120" max="36" step="1" value="12" style="width:90px;margin-top:0;text-align:center;" oninput="poMontre('jpo')">
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('jpo',1)">+1</button>
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('jpo',6)">+6</button>
+<span id="jpoPi" class="small" style="margin-left:6px;">+1,0 pi</span>
+</div>
+<div class="small">Chaque jalon (60 pi, 330 pi, 1/8, 1/4, partiel) et son piège de vitesse sont pris à D + ce nombre de pouces depuis l'arrêt. Un nombre négatif raccourcit tous les temps, le 60 pi plus que les autres. De −120 à +36 po. Avant la PT2.1.56, les jalons suivaient le roll-out (+12 po). Delzoto à Napierville : roll-out 8 po, jalons −54 po (−4,5 pi). Pris à la course suivante, après « Sauvegarder ». Chaque run garde les deux valeurs dans son texte (<code>rollout_po=</code>, <code>jalons_po=</code>), donc aussi sur la carte SD de la E3B4.</div>
+</div>
+
 <!-- [v116] la correction de depart du kit (PT2.1.54+, cle "cms") : visible seulement si le kit l'annonce -->
 <div id="cmsBloc" style="display:none;">
 <label for="cms">Correction de départ (ms)</label>
@@ -561,14 +584,14 @@ GPIO25/26). Voir la carte <b>Etat</b> pour le verdict.
 <div id="d60Bloc" style="display:none;">
 <label for="d60">Décalage du 60 pi (pouces)</label>
 <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
-<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="d60Pas(-6)">−6</button>
-<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="d60Pas(-1)">−1</button>
-<input type="number" id="d60" name="d60" min="-72" max="72" step="1" value="0" style="width:90px;margin-top:0;text-align:center;" oninput="d60Montre()">
-<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="d60Pas(1)">+1</button>
-<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="d60Pas(6)">+6</button>
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('d60',-6)">−6</button>
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('d60',-1)">−1</button>
+<input type="number" id="d60" name="d60" min="-72" max="72" step="1" value="0" style="width:90px;margin-top:0;text-align:center;" oninput="poMontre('d60')">
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('d60',1)">+1</button>
+<button type="button" class="tb" style="padding:10px 14px;margin:0;" onclick="poPas('d60',6)">+6</button>
 <span id="d60Pi" class="small" style="margin-left:6px;">0,0 pi</span>
 </div>
-<div class="small">Change <b>seulement</b> le temps du 60 pi. Un nombre négatif raccourcit ce temps : 12 po ≈ 0,01 s pour une voiture qui passe le 60 pi à 110 km/h. Le départ, le 330, le 1/8, le 1/4 et les vitesses ne changent pas. De −72 à +72 po. Pris à la course suivante, après « Sauvegarder ». Chaque run garde la valeur dans son texte (<code>dec60_po=</code>), donc aussi sur la carte SD de la E3B4. Napierville, 3-4 oct. : environ −24 po (−2 pi) pour Delzoto et pour Fred.</div>
+<div class="small">Change <b>seulement</b> le temps du 60 pi. Un nombre négatif raccourcit ce temps : 12 po ≈ 0,01 s pour une voiture qui passe le 60 pi à 110 km/h. Le départ, le 330, le 1/8, le 1/4 et les vitesses ne changent pas. De −72 à +72 po. Pris à la course suivante, après « Sauvegarder ». Chaque run garde la valeur dans son texte (<code>dec60_po=</code>), donc aussi sur la carte SD de la E3B4. Avec la position des jalons (kit PT2.1.56 et plus), commence à 0 : ce réglage sert seulement si le 60 pi reste à part des autres jalons.</div>
 </div>
 
 <label for="imuf">Filtre du capteur</label>
@@ -1380,16 +1403,18 @@ var win = 10000, buf = [], nowSrv = 0;
 var ofs = 0;
 var kitCorr = false;   // [v116] le kit met sa correction de depart dans ses temps (cle "cms") : ne plus retrancher ofs
 var kitD60 = false;    // [v117] le kit a le decalage du 60 pi (cle "d60", PT2.1.55+)
-// [v117] le decalage du 60 pi : la valeur en pieds a cote du champ, et les boutons -6 / -1 / +1 / +6 (bornes -72..+72)
-function d60Montre() {
-  var v = Number(document.getElementById('d60').value), s = document.getElementById('d60Pi');
+var kitJal = false;    // [v118] le kit a le modele « C » : roll-out et position des jalons (cle "jpo", PT2.1.56+)
+// [v118] les champs en pouces (roll-out, jalons, 60 pi) : la valeur en pieds a cote, et des boutons bornes comme le firmware
+var CHAMPS_PO = { rpo: [0, 36], jpo: [-120, 36], d60: [-72, 72] };
+function poMontre(id) {
+  var v = Number(document.getElementById(id).value), s = document.getElementById(id + 'Pi');
   s.textContent = Number.isInteger(v) ? ((v > 0 ? '+' : v < 0 ? '−' : '') + (Math.abs(v) / 12).toFixed(1).replace('.', ',') + ' pi') : '? (un nombre entier)';
 }
-function d60Pas(n) {
-  var e = document.getElementById('d60'), v = Number(e.value);
+function poPas(id, n) {
+  var b = CHAMPS_PO[id], e = document.getElementById(id), v = Number(e.value);
   if (!Number.isInteger(v)) v = 0;
-  e.value = Math.max(-72, Math.min(72, v + n));
-  d60Montre();
+  e.value = Math.max(b[0], Math.min(b[1], v + n));
+  poMontre(id);
 }
 var gfilt = 200;
 // [v6.5] gel du graphique sur un run : des qu'une course demarre (RUNNING),
@@ -2530,7 +2555,11 @@ async function refreshConfig() {
   // [v117] le decalage du 60 pi : le kit l'annonce (cle "d60", PT2.1.55+) -> champ visible
   kitD60 = (j.d60 != null);
   document.getElementById('d60Bloc').style.display = kitD60 ? '' : 'none';
-  if (kitD60) { document.getElementById('d60').value = j.d60; d60Montre(); }
+  if (kitD60) { document.getElementById('d60').value = j.d60; poMontre('d60'); }
+  // [v118] le modele « C » : le kit annonce la position des jalons (cle "jpo", PT2.1.56+) -> roll-out et jalons visibles
+  kitJal = (j.jpo != null && j.rpo != null);
+  document.getElementById('jalBloc').style.display = kitJal ? '' : 'none';
+  if (kitJal) { document.getElementById('rpo').value = j.rpo; document.getElementById('jpo').value = j.jpo; poMontre('rpo'); poMontre('jpo'); }
   document.getElementById('t50').checked = !!j.t50;
   document.getElementById('tzh').value = j.tzh;
   document.getElementById('tzm').value = j.tzm;
@@ -2631,6 +2660,19 @@ async function submitConfig(ev) {
       return false;
     }
     cfg.d60 = d60;
+  }
+  // [v118] roll-out et position des jalons, seulement si le kit a le modele « C » (cle "jpo", PT2.1.56+)
+  if (kitJal) {
+    var rpo = Number(document.getElementById('rpo').value), jpo = Number(document.getElementById('jpo').value);
+    if (!Number.isInteger(rpo) || rpo < 0 || rpo > 36) {
+      msg.innerHTML = "<div class='err'>Roll-out : un nombre entier de 0 à 36 pouces.</div>";
+      return false;
+    }
+    if (!Number.isInteger(jpo) || jpo < -120 || jpo > 36) {
+      msg.innerHTML = "<div class='err'>Position des jalons : un nombre entier de −120 à +36 pouces.</div>";
+      return false;
+    }
+    cfg.rpo = rpo; cfg.jpo = jpo;
   }
 
   var errDsp = dspAjouterAConfig(cfg);
